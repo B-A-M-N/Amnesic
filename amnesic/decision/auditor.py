@@ -85,6 +85,25 @@ class Auditor:
                     "rationale": f"Artifact {target} already exists. You cannot overwrite directly. To update, you MUST use the Semantic Bridging Protocol (save to TEMP_VAL, delete old, stage TEMP_VAL, save to final key)."
                 }
 
+        # --- LAYER -2.1: STALEMATE/LIVELOCK DETECTION (Immediate Repetition) ---
+        if decision_history:
+            last_move = decision_history[-1]
+            last_tool = last_move.get('tool_call', '').split(' ')[0] if 'tool_call' in last_move else last_move.get('move', {}).get('tool_call')
+            last_target = last_move.get('target') if 'target' in last_move else last_move.get('move', {}).get('target')
+            
+            # Handle string formatting in history if necessary
+            if not last_tool and 'tool_call' in last_move and isinstance(last_move['tool_call'], str):
+                 parts = last_move['tool_call'].split(' ', 1)
+                 last_tool = parts[0]
+                 if len(parts) > 1: last_target = parts[1]
+
+            if last_tool == action_type and last_target == target:
+                return {
+                    "auditor_verdict": "REJECT",
+                    "confidence_score": 1.0,
+                    "rationale": "STALEMATE DETECTED: Action is redundant. You are looping. If verification failed, use 'halt_and_ask' to report the discrepancy."
+                }
+
         # --- LAYER -2: LOOP DETECTION ---
         # Check last 3 moves for identical tool_call and target
         if decision_history:
