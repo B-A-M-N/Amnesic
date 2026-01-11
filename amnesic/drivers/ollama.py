@@ -58,7 +58,6 @@ class OllamaDriver:
         Attempts to parse JSON from content, with healing for Markdown code blocks
         and extra text.
         """
-        import re
         import json
         
         # 1. Try Clean Parse
@@ -68,12 +67,12 @@ class OllamaDriver:
         except (json.JSONDecodeError, ValueError):
             pass
 
-        # 2. Extract JSON from Markdown/Text
-        # Look for content between first { and last }
+        # 2. Extract JSON using strict boundaries (find first { and last })
         try:
-            match = re.search(r'(\{.*\})', content, re.DOTALL)
-            if match:
-                json_str = match.group(1)
+            start = content.find('{')
+            end = content.rfind('}') + 1
+            if start != -1 and end != 0:
+                json_str = content[start:end]
                 data = json.loads(json_str)
                 return schema.model_validate(data)
         except (json.JSONDecodeError, ValueError):

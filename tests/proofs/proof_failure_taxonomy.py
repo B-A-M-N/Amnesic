@@ -70,7 +70,7 @@ def run_failure_taxonomy_proof():
     console.print(header)
     console.print(Rule(style="dim"))
 
-    session_t = AmnesicSession(mission="Swap between A and B", l1_capacity=100)
+    session_t = AmnesicSession(mission="Swap between A and B", l1_capacity=60)
     # 60 tokens each -> 120 total > 100 capacity.
     content_a = "val_a = 1" + (" # NOISE" * 20)
     content_b = "val_b = 2" + (" # NOISE" * 20)
