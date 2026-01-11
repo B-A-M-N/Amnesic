@@ -23,8 +23,9 @@ class FileMap(TypedDict):
     imports: List[str] # Helpful for dependency tracking
 
 class StructuralMapper:
-    def __init__(self, root_dir: str, ignore_dirs: List[str] = None):
+    def __init__(self, root_dir: str, ignore_dirs: List[str] = None, include_root: bool = False):
         self.root_dir = root_dir
+        self.include_root = include_root
         self.ignore_dirs = ignore_dirs or [".git", "__pycache__", "venv", "node_modules", ".gemini", ".amnesic_cache"]
 
     def scan_repository(self) -> List[FileMap]:
@@ -40,7 +41,12 @@ class StructuralMapper:
             
             for file in files:
                 full_path = os.path.join(root, file)
-                rel_path = os.path.relpath(full_path, self.root_dir)
+                # Only include root name if explicitly requested (e.g. Multi-Repo)
+                if self.include_root:
+                    base_name = os.path.basename(self.root_dir)
+                    rel_path = os.path.join(base_name, os.path.relpath(full_path, self.root_dir))
+                else:
+                    rel_path = os.path.relpath(full_path, self.root_dir)
                 
                 if file.endswith(".py"):
                     try:

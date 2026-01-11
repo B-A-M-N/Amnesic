@@ -12,10 +12,23 @@ class GenerationArtifact(BaseModel):
     def coerce_to_string(cls, v):
         return str(v) if v is not None else ""
 
+    @field_validator('content')
+    def physical_payload_check(cls, v):
+        # Limit to 1MB to prevent system memory saturation
+        if len(v) > 1_000_000:
+            raise ValueError("Physical Payload Limit Exceeded: Generated content exceeds 1MB.")
+        return v
+
 class CodeEdit(BaseModel):
     original_snippet: str = Field(..., description="The exact text segment to replace (must match unique location).")
     new_snippet: str = Field(..., description="The new text to insert.")
     verification_notes: str = Field(default="Edit generated", description="Why this edit fixes the issue.")
+
+    @field_validator('new_snippet')
+    def physical_payload_check(cls, v):
+        if len(v) > 1_000_000:
+            raise ValueError("Physical Payload Limit Exceeded: Edit snippet exceeds 1MB.")
+        return v
 
 class Worker:
     def __init__(self, driver: OllamaDriver):

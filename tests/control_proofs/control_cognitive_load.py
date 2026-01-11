@@ -21,7 +21,7 @@ class ControlMove(BaseModel):
 
 # Standard Agent (Control) - A naive agent that tries to read everything
 class StandardReActAgent:
-    def __init__(self, mission: str, model: str = "devstral-small-2:24b-cloud", token_limit: int = 128000):
+    def __init__(self, mission: str, model: str = "rnj-1:8b-cloud", token_limit: int = 128000):
         # We give it a HUGE context limit to simulate "Full Context Visibility" 
         # The hypothesis is that even with enough memory, the NOISE will distract it.
         self.mission = mission

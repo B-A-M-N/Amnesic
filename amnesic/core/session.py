@@ -29,8 +29,8 @@ class AgentState(TypedDict):
 class AmnesicSession:
     def __init__(self, 
                  mission: str = "TASK: Default Mission.", 
-                 root_dir: str = ".", 
-                 model: str = "devstral-small-2:24b-cloud", 
+                 root_dir: Union[str, List[str]] = ".", 
+                 model: str = "rnj-1:8b-cloud", 
                  provider: str = "ollama",
                  l1_capacity: int = 4000,
                  sidecar: Optional[SharedSidecar] = None,
@@ -41,12 +41,17 @@ class AmnesicSession:
                  elastic_mode: bool = False):
         
         self.mission = mission
-        self.root_dir = root_dir
+        # Normalize to list of absolute paths
+        if isinstance(root_dir, str):
+            self.root_dirs = [os.path.abspath(root_dir)]
+        else:
+            self.root_dirs = [os.path.abspath(rd) for rd in root_dir]
+            
         self.elastic_mode = elastic_mode
         self.console = Console()
         
         # Enforce Determinism if requested
-        driver_kwargs = {}
+        driver_kwargs = {"num_ctx": l1_capacity}
         if deterministic_seed is not None:
             driver_kwargs["temperature"] = 0.0
             # Note: Seed setting might depend on provider support, but temperature=0 is the big one.
@@ -54,7 +59,7 @@ class AmnesicSession:
         self.driver = get_driver(provider, model, api_key=api_key, base_url=base_url, **driver_kwargs)
         
         # 1. Infrastructure
-        self.env = ExecutionEnvironment(root_dir=root_dir)
+        self.env = ExecutionEnvironment(root_dirs=self.root_dirs)
         self.pager = DynamicPager(capacity_tokens=l1_capacity)
         self.comparator = Comparator(self.pager)
         self.pager.pin_page("SYS:MISSION", f"MISSION: {mission}")
@@ -98,6 +103,36 @@ class AmnesicSession:
         cfg = config or {"configurable": {"thread_id": "default"}}
         for event in self.app.stream(self.state, config=cfg):
             pass # Just run it
+
+    def _safe_path(self, path: str) -> str:
+        """
+        Enforces 'Path Jail' (Jailbreak protection).
+        Ensures all file operations are strictly within the registered root_dirs.
+        """
+        # Resolve to absolute
+        target = os.path.abspath(path)
+        
+        # Check against all allowed roots
+        is_safe = any(target.startswith(rd) for rd in self.root_dirs)
+        
+        if not is_safe:
+            # Also check relative to each root if it was a relative path input
+            for rd in self.root_dirs:
+                rel_target = os.path.abspath(os.path.join(rd, path))
+                if rel_target.startswith(rd):
+                    target = rel_target
+                    is_safe = True
+                    break
+        
+        if not is_safe:
+            raise PermissionError(f"Path Traversal Blocked: Access to {path} is outside the multi-root jail.")
+            
+        # 3. Block sensitive files (Kernel hardcoded)
+        sensitive = [".env", ".git", ".gemini", "vault_data.txt"]
+        if any(s in path for s in sensitive):
+            raise PermissionError(f"Security Blocked: Access to {path} is forbidden by Kernel policy.")
+            
+        return target
 
     def visualize(self):
         """Print the ASCII structure of the LangGraph state machine."""
@@ -306,6 +341,25 @@ class AmnesicSession:
 
     def _node_auditor(self, state: AgentState):
         move = state['manager_decision']
+        
+        # --- LAYER 0: PHYSICAL PRE-FLIGHT (Hardened) ---
+        if move.tool_call in ["stage_context", "edit_file", "write_file"]:
+            try:
+                # Extract path from target (handles 'path: instruction' for edit/write)
+                path = move.target.split(":", 1)[0].strip() if ":" in move.target else move.target
+                self._safe_path(path)
+            except PermissionError as e:
+                audit = {"auditor_verdict": "REJECT", "rationale": f"PHYSICAL SECURITY VIOLATION: {str(e)}"}
+                state['framework_state'].decision_history.append({
+                    "turn": len(state['framework_state'].decision_history) + 1,
+                    "tool_call": move.tool_call,
+                    "target": move.target,
+                    "move": move.model_dump(),
+                    "auditor_verdict": audit["auditor_verdict"],
+                    "rationale": audit["rationale"]
+                })
+                return {"last_audit": audit, "framework_state": state['framework_state'], "last_node": "auditor"}
+
         raw_map = state.get('active_file_map', [])
         valid_files = [f['path'] for f in raw_map] if raw_map else []
         active_pages = list(self.pager.active_pages.keys())
@@ -319,6 +373,7 @@ class AmnesicSession:
         elif move.tool_call == "stage_context" and len(file_pages) > 0 and not self.elastic_mode:
              blocking_file = file_pages[0].replace("FILE:", "")
              audit = {"auditor_verdict": "REJECT", "rationale": f"L1 Violation: Memory full (Strict Mode). You MUST 'unstage_context' ({blocking_file}) before staging {move.target}."}
+             state['framework_state'].last_action_feedback = f"Error: Cannot stage {move.target}. File {blocking_file} is already occupying L1. Unstage it first."
         elif move.tool_call == "stage_context":
             if move.target not in valid_files:
                  audit = {"auditor_verdict": "REJECT", "rationale": f"File {move.target} does not exist on disk."}
@@ -372,11 +427,19 @@ class AmnesicSession:
     def _tool_stage(self, target: str):
         targets = [t.strip() for t in target.replace(',', ' ').split() if t.strip()]
         for file_path in targets:
-            if os.path.exists(file_path):
-                with open(file_path, 'r', errors='replace') as f:
-                    content = f.read()
-                if not self.pager.request_access(f"FILE:{file_path}", content, priority=8):
-                    raise ValueError(f"OOM: File '{file_path}' ({len(content)//4} tokens) exceeds L1 Capacity.")
+            try:
+                safe_target = self._safe_path(file_path)
+                if os.path.exists(safe_target):
+                    with open(safe_target, 'r', errors='replace') as f:
+                        content = f.read()
+                    if not self.pager.request_access(f"FILE:{file_path}", content, priority=8):
+                        raise ValueError(f"OOM: File '{file_path}' ({len(content)//4} tokens) exceeds L1 Capacity.")
+                else:
+                    self.state['framework_state'].last_action_feedback = f"Error: File '{file_path}' not found on disk. Did you use the full relative path?"
+            except PermissionError as e:
+                self.state['framework_state'].last_action_feedback = f"Security Error: {str(e)}"
+            except Exception as e:
+                self.state['framework_state'].last_action_feedback = f"Stage Error: {str(e)}"
 
     def _tool_unstage(self, target: str):
         if f"FILE:{target}" in self.pager.active_pages:
@@ -418,6 +481,8 @@ class AmnesicSession:
         path, content = target.split(":", 1)
         path = path.strip()
         content = content.strip()
+        
+        safe_path = self._safe_path(path)
 
         # Artifact Reference Expansion
         if content.startswith("ARTIFACT:"):
@@ -431,7 +496,7 @@ class AmnesicSession:
                 return
 
         try:
-            with open(path, "w") as f: f.write(content)
+            with open(safe_path, "w") as f: f.write(content)
             self.state['framework_state'].last_action_feedback = f"Successfully wrote {path}."
         except Exception as e:
             self.state['framework_state'].last_action_feedback = f"Write Error: {e}"
@@ -446,6 +511,7 @@ class AmnesicSession:
             file_path = target
             instruction = "Fix the issue found in the file."
 
+        safe_path = self._safe_path(file_path)
         active_context = self.pager.render_context()
         worker = Worker(self.driver)
         
@@ -456,11 +522,11 @@ class AmnesicSession:
             constraints=["Preserve indentation.", "Output only the code snippet."]
         )
         
-        if os.path.exists(file_path):
-            with open(file_path, 'r') as f: content = f.read()
+        if os.path.exists(safe_path):
+            with open(safe_path, 'r') as f: content = f.read()
             if result.original_snippet in content:
                 new_content = content.replace(result.original_snippet, result.new_snippet)
-                with open(file_path, 'w') as f: f.write(new_content)
+                with open(safe_path, 'w') as f: f.write(new_content)
                 self.state['framework_state'].last_action_feedback = f"Successfully edited {file_path}."
                 self.state['framework_state'].artifacts.append(Artifact(
                     identifier=f"diff_{os.path.basename(file_path)}",

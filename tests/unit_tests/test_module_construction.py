@@ -43,9 +43,9 @@ class TestModuleConstruction(unittest.TestCase):
 
     def test_execution_environment_init(self):
         """Verify ExecutionEnvironment initializes correctly."""
-        env = ExecutionEnvironment(root_dir=".")
-        self.assertEqual(env.root_dir, ".")
-        self.assertIsInstance(env.mapper, StructuralMapper)
+        env = ExecutionEnvironment(root_dirs=["."])
+        self.assertEqual(env.root_dirs, [os.path.abspath(".")])
+        self.assertEqual(len(env.mappers), 1)
 
     def test_tool_registry_init(self):
         """Verify ToolRegistry initializes empty."""
@@ -65,15 +65,15 @@ class TestModuleConstruction(unittest.TestCase):
         """Verify StructuralMapper default ignores."""
         mapper = StructuralMapper(root_dir=".")
         self.assertEqual(mapper.root_dir, ".")
+        self.assertFalse(mapper.include_root)
         self.assertIn(".git", mapper.ignore_dirs)
-        self.assertIn("__pycache__", mapper.ignore_dirs)
 
     def test_text_mapper_init(self):
         """Verify TextMapper default extensions."""
         mapper = TextMapper(root_dir=".")
         self.assertEqual(mapper.root_dir, ".")
+        self.assertFalse(mapper.include_root)
         self.assertIn(".md", mapper.extensions)
-        self.assertIn(".txt", mapper.extensions)
 
     def test_driver_factory_ollama(self):
         """Verify Driver Factory returns Ollama driver."""

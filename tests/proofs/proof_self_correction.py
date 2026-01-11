@@ -37,8 +37,8 @@ def run_self_correction_proof():
     mission = (
         "MISSION: 1. Extract 'THE_SECRET' from source_a.py.\n"
         "2. Read source_b.py. If 'THE_SECRET' is different, update it using the protocol.\n"
-        "3. PROTOCOL: Save new value to 'TEMP_VAL', delete 'THE_SECRET', stage 'TEMP_VAL', then save 'THE_SECRET'.\n"
-        "4. HALT only after THE_SECRET is saved as 8888."
+        "3. PROTOCOL: a) Save new value to 'TEMP_VAL'. b) Delete old 'THE_SECRET'. c) Stage 'TEMP_VAL'. d) Save new value to 'THE_SECRET'. e) Delete 'TEMP_VAL'.\n"
+        "4. HALT IMMEDIATELY after 'TEMP_VAL' is deleted and 'THE_SECRET' is 8888. Do NOT use verify_step."
     )
     
     session = AmnesicSession(mission=mission, l1_capacity=2000)

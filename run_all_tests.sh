@@ -45,12 +45,16 @@ python3 tests/unit_tests/test_presets_unit.py
 if [ $? -ne 0 ]; then echo "Presets Unit Tests Failed"; exit 1; fi
 python3 tests/unit_tests/test_code_engineering_unit.py
 if [ $? -ne 0 ]; then echo "Code Engineering Unit Tests Failed"; exit 1; fi
+python3 tests/unit_tests/test_hardening_unit.py
+if [ $? -ne 0 ]; then echo "Hardening Unit Tests Failed"; exit 1; fi
 python3 tests/unit_tests/test_module_construction.py
 if [ $? -ne 0 ]; then echo "Module Construction Unit Tests Failed"; exit 1; fi
 python3 tests/unit_tests/test_framework_diagnostics.py
 if [ $? -ne 0 ]; then echo "Framework Diagnostics Unit Tests Failed"; exit 1; fi
 python3 tests/unit_tests/test_prompt_safety.py
 if [ $? -ne 0 ]; then echo "Prompt Safety Unit Tests Failed"; exit 1; fi
+python3 tests/unit_tests/test_feasibility_unit.py
+if [ $? -ne 0 ]; then echo "Feasibility Unit Tests Failed"; exit 1; fi
 python3 tests/unit_tests/test_elastic_mode_unit.py
 if [ $? -ne 0 ]; then echo "Elastic Mode Unit Tests Failed"; exit 1; fi
 
@@ -113,6 +117,22 @@ if [ $? -ne 0 ]; then echo "Marathon Proof Failed"; exit 1; fi
 echo "   [5l] Extreme Efficiency (Micro-Kernel)..."
 python3 tests/proofs/proof_extreme_efficiency.py
 if [ $? -ne 0 ]; then echo "Efficiency Proof Failed"; exit 1; fi
+
+echo "   [5m] Workspace Nexus (Multi-Repo)..."
+python3 tests/proofs/proof_workspace_nexus.py
+if [ $? -ne 0 ]; then echo "Nexus Proof Failed"; exit 1; fi
+
+echo "   [5n] Cross-Model Invariance..."
+python3 tests/proofs/proof_model_invariance.py
+if [ $? -ne 0 ]; then echo "Invariance Proof Failed"; exit 1; fi
+
+echo "   [5o] Failure Taxonomy (Safety)..."
+python3 tests/proofs/proof_failure_taxonomy.py
+if [ $? -ne 0 ]; then echo "Taxonomy Proof Failed"; exit 1; fi
+
+echo "   [5p] Human-in-the-Loop Friction..."
+python3 tests/proofs/proof_human_friction.py
+if [ $? -ne 0 ]; then echo "Human Friction Proof Failed"; exit 1; fi
 
 echo "--------------------------------------------"
 echo "6. Running Code Engineering Proofs"

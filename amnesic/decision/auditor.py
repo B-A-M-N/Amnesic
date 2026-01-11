@@ -53,6 +53,26 @@ class Auditor:
                     "rationale": "NUMERICAL HALLUCINATION: You mentioned a number that does not exist in the source text. You must extract the EXACT value from the file."
                 }
 
+        # --- LAYER 1.7: PHYSICAL VERIFICATION CHECK (Anti-Tamper) ---
+        if action_type == "verify_step" and active_context:
+            # Check if we are verifying an existing artifact
+            target_clean = target.replace("ARTIFACT:", "").strip()
+            found_art = next((a for a in current_artifacts if a.identifier == target_clean), None)
+            
+            if found_art:
+                # If the artifact value is NOT in the context, it's a discrepancy (Human Friction)
+                if found_art.summary not in active_context:
+                    return {
+                        "auditor_verdict": "REJECT",
+                        "confidence_score": 1.0,
+                        "rationale": (
+                            f"CRITICAL DISCREPANCY: Artifact '{target_clean}' has value '{found_art.summary}', "
+                            f"but this value is NOT present in the current L1 context source text. "
+                            f"The environment contradicts your memory. "
+                            f"You MUST use 'halt_and_ask' to report this corruption."
+                        )
+                    }
+
         # --- LAYER -2.5: EXISTING ARTIFACT CHECK (Loop Breaker) ---
         if action_type == "save_artifact":
             existing_ids = [a.identifier for a in current_artifacts]

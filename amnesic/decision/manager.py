@@ -113,7 +113,8 @@ class Manager:
         {l1_rule_prompt}
         3. Identify what is MISSING from the Shared Ground Truth.
         4. If you have all necessary inputs, use 'verify_step' or 'calculate'.
-        5. If the Mission is complete, use 'halt_and_ask'.
+        5. If verification fails (values do not match), do NOT retry. Immediately 'halt_and_ask' to report the discrepancy.
+        6. If the Mission is complete, use 'halt_and_ask'.
 
         {feedback_str}
         

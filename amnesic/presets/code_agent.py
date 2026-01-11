@@ -92,8 +92,9 @@ SAVED ARTIFACTS:
 4. If you have found the data you need (X or Y), you MUST save it as an ARTIFACT using 'save_artifact' immediately.
 5. {eviction_rule}
 6. SEMANTIC BRIDGING: You cannot overwrite artifacts. To update, save to 'TEMP_VAL', delete the old artifact (wiping L1), stage 'TEMP_VAL' back into L1, and then save to the final key.
-7. ONLY reference files listed in the [ENVIRONMENT STRUCTURE]. If it is not on the map, it does not exist.
-8. When you have X and Y, use 'halt_and_ask' to output the sum.
+7. GOAL PRIORITY: Once the specific value or state requested in the MISSION is achieved in your Artifacts, you MUST use 'halt_and_ask' immediately. Do NOT perform unnecessary verifications.
+8. ONLY reference files listed in the [ENVIRONMENT STRUCTURE]. If it is not on the map, it does not exist.
+9. When you have X and Y, use 'halt_and_ask' to output the sum.
 
 [FEW-SHOT EXAMPLES]
 Example 1 (Staging):

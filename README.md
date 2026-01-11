@@ -68,7 +68,14 @@ The following capabilities are verified in the regression suite. Detailed traces
 *   **Contract Enforcement:** Validates implementation code against a "Contract Artifact" (spec) and halts on violations (e.g., wrong return type).
 *   **Failure Isolation:** Speculative changes are quarantined in a hypothesis layer; destructive failures do not poison the main codebase.
 *   **Ignorance Detection:** Identifies missing dependencies (e.g., an import to a non-existent file) and explicitly halts to ask for context instead of hallucinating.
-### 5. Agent Dynamics & Strategy
+
+### 5. Security & Hardening (Kernel Level)
+*   **The Path Jail:** Enforces strict chroot-like isolation. Agent is architecturally forbidden from accessing files outside the approved `root_dirs`.
+*   **Physical Pre-Flight:** Intercepts security violations (traversal, sensitive files) in the session logic *before* calling the LLM, preventing prompt-injection jailbreaks.
+*   **Payload Protection:** Validates and caps generated content size (1MB) to prevent system memory saturation from massive hallucinations.
+*   **Hardware-Enforced Context:** Strictly enforces the `l1_capacity` at the driver level (e.g., `num_ctx`), ensuring the model literally cannot "see" beyond the amnesic window.
+
+### 6. Agent Dynamics & Strategy
 *   **The Jekyll & Hyde Protocol (Persona Swap):** The agent dynamically switches strategies mid-session. It starts as an **Architect** to plan a complex refactor ("The Spaghetti Decomposition") and then transforms into an **Implementer** to execute it surgically.
 *   **Interference Resistance:** Outperforms standard ReAct agents which loop or fail under the same context window constraints.
 
@@ -78,7 +85,7 @@ The following capabilities are verified in the regression suite. Detailed traces
 
 ### Prerequisites
 *   **Python 3.10+**
-*   **Ollama** running locally (defaults to `devstral-small-2:24b-cloud`).
+*   **Ollama** running locally (defaults to `rnj-1:8b-cloud`).
 
 ### Installation
 ```bash
@@ -136,6 +143,11 @@ You can also run individual capability proofs to see specific features in action
 | `tests/proofs/proof_self_correction.py` | **Self-Correction:** Updating memory based on new evidence. |
 | `tests/proofs/proof_marathon.py` | **Marathon Session:** Sustained reasoning over 50+ turns. |
 | `tests/proofs/proof_extreme_efficiency.py` | **Extreme Efficiency:** Operating in < 512 token L1. |
+| `tests/proofs/proof_extreme_efficiency.py` | **Extreme Efficiency:** Hardware-enforced Micro-Kernel. |
+| `tests/proofs/proof_workspace_nexus.py` | **Workspace Nexus:** Cross-repository reasoning and fixing. |
+| `tests/proofs/proof_model_invariance.py` | **Model Invariance:** Equivalent results across different LLMs. |
+| `tests/proofs/proof_failure_taxonomy.py` | **Failure Safety:** Controlled degradation under stress. |
+| `tests/proofs/proof_human_friction.py` | **Human Friction:** Catching manual artifact corruption. |
 | `tests/proofs/proof_persona_swap.py` | **Persona Swap:** Architect -> Implementer workflow. |
 | `tests/proofs/proof_comparator.py` | **Comparator:** Dual-Slot L1 comparison mechanics. |
 | `tests/proofs/proof_prefetch.py` | **L2 Prefetch:** Predictive background staging. |

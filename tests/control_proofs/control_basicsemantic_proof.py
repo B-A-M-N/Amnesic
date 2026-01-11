@@ -27,7 +27,7 @@ class ControlMove(BaseModel):
 
 # --- 1. The "Standard" Agent (The Control) ---
 class StandardReActAgent:
-    def __init__(self, mission: str, model: str = "devstral-small-2:24b-cloud", token_limit: int = 1500):
+    def __init__(self, mission: str, model: str = "rnj-1:8b-cloud", token_limit: int = 1500):
         self.mission = mission
         self.driver = get_driver("ollama", model)
         self.token_limit = token_limit

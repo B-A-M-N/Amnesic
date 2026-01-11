@@ -130,3 +130,49 @@ These capabilities represent the "fallout" of the architecture. They are theoret
     2. L1 Capacity set to 512 tokens.
 *   **Status:** ✅ **VERIFIED**
 *   **Proof:** `tests/proofs/proof_extreme_efficiency.py`
+
+### 14. Multi-Root Workspace Nexus
+*   **Claim:** The framework enables a single agent to operate securely across multiple distinct repository roots, allowing cross-repo bug discovery and fixing.
+*   **The Test:** "The Cross-Repo Proof."
+    1. Mount Repo A (Library) and Repo B (Application).
+    2. Agent extracts API contract from Repo A.
+    3. Agent fixes calling code in Repo B based on Repo A's truth.
+*   **Status:** ✅ **VERIFIED**
+*   **Proof:** `tests/proofs/proof_workspace_nexus.py`
+
+### 15. Cross-Model Invariance
+*   **Claim:** The amnesic protocol ensures equivalent artifact production across materially different model architectures (e.g., 8B vs 24B).
+*   **Status:** ✅ **VERIFIED**
+*   **Proof:** `tests/proofs/proof_model_invariance.py`
+
+### 16. Explicit Failure Taxonomy
+*   **Claim:** The system classifies and surfaces specific failure modes (Deadlock, Starvation, Thrash) rather than failing cryptically.
+*   **Status:** ✅ **VERIFIED**
+*   **Proof:** `tests/proofs/proof_failure_taxonomy.py`
+
+### 17. Human-in-the-Loop Resilience
+*   **Claim:** The Auditor catches and contains damage from human-injected errors (e.g., manual artifact corruption) during a session.
+*   **Status:** ✅ **VERIFIED**
+*   **Proof:** `tests/proofs/proof_human_friction.py`
+
+---
+
+## Phase 3: Systemic Hardening (Security)
+
+These capabilities ensure the framework is safe for production use by enforcing physical constraints.
+
+### 15. The Path Jail (Isolation)
+*   **Claim:** The agent is physically prevented from accessing any file outside the designated root directories.
+*   **Status:** ✅ **VERIFIED**
+*   **Proof:** `tests/unit_tests/test_hardening_unit.py`
+
+### 16. Physical Pre-Flight (Security Gate)
+*   **Claim:** Security violations are caught in the kernel logic before reaching the LLM, preventing "LLM-Lawyering" or jailbreak attempts.
+*   **Status:** ✅ **VERIFIED**
+*   **Proof:** `tests/unit_tests/test_hardening_unit.py`
+
+### 17. Payload Protection (Resource Safety)
+*   **Claim:** The system rejects generated payloads that exceed safe size limits (1MB), protecting against "hallucination bloat."
+*   **Status:** ✅ **VERIFIED**
+*   **Proof:** `amnesic/decision/worker.py` (via Pydantic Validators)
+

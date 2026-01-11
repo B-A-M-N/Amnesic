@@ -8,8 +8,9 @@ class TextChunk(TypedDict):
     metadata: Dict
 
 class TextMapper:
-    def __init__(self, root_dir: str, ignore_dirs: List[str] = None):
+    def __init__(self, root_dir: str, ignore_dirs: List[str] = None, include_root: bool = False):
         self.root_dir = root_dir
+        self.include_root = include_root
         self.ignore_dirs = ignore_dirs or [".git", "__pycache__", "venv", "node_modules", ".gemini", ".amnesic_cache"]
         self.extensions = [".md", ".txt", ".rst"]
 
@@ -26,7 +27,11 @@ class TextMapper:
             for file in files:
                 if any(file.endswith(ext) for ext in self.extensions):
                     full_path = os.path.join(root, file)
-                    rel_path = os.path.relpath(full_path, self.root_dir)
+                    if self.include_root:
+                        base_name = os.path.basename(self.root_dir)
+                        rel_path = os.path.join(base_name, os.path.relpath(full_path, self.root_dir))
+                    else:
+                        rel_path = os.path.relpath(full_path, self.root_dir)
                     
                     file_chunks = self._process_file(full_path, rel_path)
                     chunks.extend(file_chunks)

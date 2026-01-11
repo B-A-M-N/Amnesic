@@ -10,13 +10,14 @@ from langchain_core.exceptions import OutputParserException
 logger = logging.getLogger("amnesic.driver")
 
 class OllamaDriver:
-    def __init__(self, model_name: str = "qwen2.5-coder:7b", temperature: float = 0.1):
+    def __init__(self, model_name: str = "qwen2.5-coder:7b", temperature: float = 0.1, num_ctx: int = 2048):
         """
         The low-level interface to the LLM. 
         Designed to be stateless to allow rapid 'Frame Swapping'.
         """
         self.model_name = model_name
         self.temperature = temperature
+        self.num_ctx = num_ctx
         self.last_request_tokens = 0
         
         # Base client
@@ -24,6 +25,7 @@ class OllamaDriver:
             model=model_name,
             temperature=temperature,
             format="json",
+            num_ctx=num_ctx,
             keep_alive="5m"
         )
 
@@ -51,6 +53,34 @@ class OllamaDriver:
         total_chars = len(system_prompt) + len(user_prompt)
         self.last_request_tokens = total_chars // 4
 
+    def _safe_parse_json(self, content: str, schema: Type[BaseModel]) -> BaseModel:
+        """
+        Attempts to parse JSON from content, with healing for Markdown code blocks
+        and extra text.
+        """
+        import re
+        import json
+        
+        # 1. Try Clean Parse
+        try:
+            data = json.loads(content)
+            return schema.model_validate(data)
+        except (json.JSONDecodeError, ValueError):
+            pass
+
+        # 2. Extract JSON from Markdown/Text
+        # Look for content between first { and last }
+        try:
+            match = re.search(r'(\{.*\})', content, re.DOTALL)
+            if match:
+                json_str = match.group(1)
+                data = json.loads(json_str)
+                return schema.model_validate(data)
+        except (json.JSONDecodeError, ValueError):
+            pass
+            
+        raise ValueError("Could not extract valid JSON from response.")
+
     def generate_structured(
         self, 
         user_prompt: str, 
@@ -63,7 +93,7 @@ class OllamaDriver:
         """
         self._update_token_usage(system_prompt, user_prompt)
         
-        structured_llm = self._client.with_structured_output(schema)
+        # We use raw generation + parsing to have full control over the healing
         messages = [
             SystemMessage(content=system_prompt),
             HumanMessage(content=user_prompt)
@@ -74,13 +104,17 @@ class OllamaDriver:
             try:
                 if attempt > 0:
                     logger.warning(f"Retry attempt {attempt}...")
-                result = structured_llm.invoke(messages)
-                return result
-            except (OutputParserException, json.JSONDecodeError, ValueError) as e:
+                
+                # Use standard invoke to get raw text, then parse ourselves
+                # This bypasses LangChain's strict parser which might fail before we can heal
+                response = self._client.invoke(messages)
+                return self._safe_parse_json(response.content, schema)
+                
+            except Exception as e:
                 logger.error(f"Structured generation failed: {str(e)}")
                 attempt += 1
                 messages.append(HumanMessage(
-                    content="Error: Invalid JSON. Output ONLY raw JSON."
+                    content=f"Error: {str(e)}. Output ONLY valid raw JSON matching the schema."
                 ))
         
         raise RuntimeError(f"Model failed to generate valid {schema.__name__}.")
@@ -107,6 +141,7 @@ class OllamaDriver:
             model=self.model_name,
             temperature=self.temperature,
             format="json",
+            num_ctx=self.num_ctx,
             keep_alive="5m"
         )
 
@@ -120,11 +155,10 @@ class OllamaDriver:
                     if stream_callback:
                         stream_callback(content)
                 
-                # Parse the final accumulated string
-                data = json.loads(full_content)
-                return schema.model_validate(data)
+                # Parse the final accumulated string using safe parser
+                return self._safe_parse_json(full_content, schema)
                 
-            except (json.JSONDecodeError, ValueError) as e:
+            except Exception as e:
                 logger.error(f"Streaming structured generation failed: {str(e)}")
                 attempt += 1
                 messages.append(HumanMessage(
