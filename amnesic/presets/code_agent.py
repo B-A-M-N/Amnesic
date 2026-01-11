@@ -87,10 +87,11 @@ SAVED ARTIFACTS:
 
 [STRICT RULES]
 1. {amnesia_rule}
-2. EXTRACT BEFORE FORGET: If you are reading a file and find mission-critical data, you MUST use 'save_artifact' BEFORE you 'unstage_context'. If you unstage without saving, you will FORGET the data.
-3. You are FORBIDDEN from using 'stage_context' on a file that is already in L1.
-4. If you have found the data you need (X or Y), you MUST save it as an ARTIFACT using 'save_artifact' immediately.
-5. {eviction_rule}
+2. WARNING: Unstaging a file wipes your memory of it immediately. You MUST use 'save_artifact' to save any data you need as an ARTIFACT *before* using 'unstage_context'.
+3. EXTRACT BEFORE FORGET: If you identify mission-critical data in a file, you MUST save it BEFORE you unstage. If you unstage without saving, you will FORGET the data and have to re-stage the file.
+4. You are FORBIDDEN from using 'stage_context' on a file that is already in L1.
+5. If you have found the data you need (X or Y), you MUST save it as an ARTIFACT using 'save_artifact' immediately.
+6. {eviction_rule}
 6. SEMANTIC BRIDGING: You cannot overwrite artifacts. To update, save to 'TEMP_VAL', delete the old artifact (wiping L1), stage 'TEMP_VAL' back into L1, and then save to the final key.
 7. GOAL PRIORITY: Once the specific value or state requested in the MISSION is achieved in your Artifacts, you MUST use 'halt_and_ask' immediately. Do NOT perform unnecessary verifications.
 8. ONLY reference files listed in the [ENVIRONMENT STRUCTURE]. If it is not on the map, it does not exist.

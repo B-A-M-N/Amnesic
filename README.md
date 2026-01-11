@@ -145,9 +145,9 @@ You can also run individual capability proofs to see specific features in action
 | `tests/proofs/proof_extreme_efficiency.py` | **Extreme Efficiency:** Operating in < 512 token L1. |
 | `tests/proofs/proof_extreme_efficiency.py` | **Extreme Efficiency:** Hardware-enforced Micro-Kernel. |
 | `tests/proofs/proof_workspace_nexus.py` | **Workspace Nexus:** Cross-repository reasoning and fixing. |
-| `tests/proofs/proof_model_invariance.py` | **Model Invariance:** Equivalent results across different LLMs. |
-| `tests/proofs/proof_failure_taxonomy.py` | **Failure Safety:** Controlled degradation under stress. |
-| `tests/proofs/proof_human_friction.py` | **Human Friction:** Catching manual artifact corruption. |
+| `tests/proofs/proof_model_invariance.py` | **Model Invariance:** Stable reasoning across model sizes (8b to 70b) via driver healing. |
+| `tests/proofs/proof_failure_taxonomy.py` | **Failure Safety:** Controlled degradation (Deadlock/Thrash) with automated recovery. |
+| `tests/proofs/proof_human_friction.py` | **Human Friction:** "Verify-First" protocol to detect and report state corruption. |
 | `tests/proofs/proof_persona_swap.py` | **Persona Swap:** Architect -> Implementer workflow. |
 | `tests/proofs/proof_comparator.py` | **Comparator:** Dual-Slot L1 comparison mechanics. |
 | `tests/proofs/proof_prefetch.py` | **L2 Prefetch:** Predictive background staging. |

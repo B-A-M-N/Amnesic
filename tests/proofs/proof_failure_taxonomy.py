@@ -79,13 +79,13 @@ def run_failure_taxonomy_proof():
     with open("file_b.py", "w") as f: f.write(content_b)
     
     session_t.pager.request_access("FILE:file_a.py", content_a)
-    print_trace_row(("LOAD_A", "file_a.py", f"{session_t.pager.current_usage}/100", "INSERTED", Text("OK", style="green")))
+    print_trace_row(("LOAD_A", "file_a.py", f"{session_t.pager.current_usage}/{session_t.pager.capacity}", "INSERTED", Text("OK", style="green")))
     
     session_t.pager.tick()
     
     session_t.pager.request_access("FILE:file_b.py", content_b)
     # This triggers eviction
-    print_trace_row(("LOAD_B", "file_b.py", f"{session_t.pager.current_usage}/100", "EVICTED_A -> INSERTED_B", Text("RECOVERED", style="green")))
+    print_trace_row(("LOAD_B", "file_b.py", f"{session_t.pager.current_usage}/{session_t.pager.capacity}", "EVICTED_A -> INSERTED_B", Text("RECOVERED", style="green")))
     
     # Assertion: File A should be evicted (missing from L1), File B should be present.
     is_a_gone = "FILE:file_a.py" not in session_t.pager.active_pages

@@ -77,6 +77,16 @@ class OllamaDriver:
                 return schema.model_validate(data)
         except (json.JSONDecodeError, ValueError):
             pass
+
+        # 3. Regex Fallback (The "Hammer")
+        try:
+            match = re.search(r'(\{.*\})', content, re.DOTALL)
+            if match:
+                json_str = match.group(1)
+                data = json.loads(json_str)
+                return schema.model_validate(data)
+        except (json.JSONDecodeError, ValueError):
+            pass
             
         raise ValueError("Could not extract valid JSON from response.")
 

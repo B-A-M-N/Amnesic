@@ -222,17 +222,36 @@ Success: Mission completed. X_value: 75, Y_value: 96, TOTAL: 171.
     4    Implementer   stage_context(app.py)      Reading monolith to begin rewrite.
     5    Implementer   edit_file(app.py)          Rewriting code to match architectural plan.
 ```
-## 12. The Eviction Puzzle (Automated LRU)
-**Verified:** Saturday, January 10, 2026
-**Scenario:** Load a sequence of large files until the token budget (300) is exceeded.
-**Mechanism:** `Pager` automatically selects the least recently used (LRU) file for eviction to make room for new data.
+## 13. Model Invariance (Driver Healing)
+**Verified:** Sunday, January 11, 2026
+**Model:** `rnj-1:8b-cloud` (Quantized Small Model)
+**Scenario:** Execute a standard protocol using a model prone to "Chatty JSON" and malformed output.
+**Architectural Fix:** Implemented `_safe_parse_json` in the Ollama driver to heal JSON via substring extraction (first `{` to last `}`).
 
 ### Execution Trace
-```text
- 1. Agent loads start.txt (ALPHA) -> L1 Usage: 157/300
- 2. Agent loads middle_1.txt -> L1 Usage: 152/300
- 3. Agent loads middle_2.txt -> START.TXT EVICTED (LRU trigger)
- 4. Agent loads end.txt (OMEGA) -> MIDDLE_1.TXT EVICTED
- 5. Final State: Memory contains ALPHA + OMEGA.
-```
-**Outcome:** The Agent successfully "bridged the context gap" by offloading earlier parts of the key before they were evicted from L1.
+- **Observation:** Model outputted preamble text before JSON.
+- **Result:** Driver successfully stripped preamble and extracted valid schema.
+- **Outcome:** **PASS**. The system is now resilient to model size/quality variance.
+
+## 14. Failure Taxonomy (Controlled Degradation)
+**Verified:** Sunday, January 11, 2026
+**Component:** Pager (Memory Management Unit)
+**Scenarios:**
+1. **Deadlock Prevention:** Manager requests a file larger than L1 capacity.
+2. **Thrash Recovery:** Constant context switching under a tight token budget.
+
+### Execution Trace
+- **Deadlock:** Requested 8000 tokens in a 500-token budget. **RESULT: REJECTED (SAFE)**.
+- **Thrash:** Loaded File A, then File B. **RESULT: EVICTED_A -> INSERTED_B (RECOVERED)**.
+- **Outcome:** **PASS**. The Pager correctly prioritizes system stability over impossible requests.
+
+## 15. Human Friction (Verify-First Protocol)
+**Verified:** Sunday, January 11, 2026
+**Scenario:** A human manually poisons an artifact (`SECRET_ID=9999`) while the source file (`truth.txt`) contains `1337`.
+**Mechanism:** Auditor enforces a "Sanity Check" during `verify_step`.
+
+### Execution Trace
+1. **Turn 1:** Agent stages `truth.txt`.
+2. **Turn 2:** Agent attempts `verify_step(SECRET_ID)`.
+3. **Turn 3:** Agent detects the mismatch between Artifact and context source text.
+4. **Outcome:** **PASS**. Agent correctly executed `halt_and_ask` to report the corruption instead of propagating the error.
