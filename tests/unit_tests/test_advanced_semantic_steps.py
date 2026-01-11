@@ -65,7 +65,7 @@ class TestAdvancedSemanticSteps(unittest.TestCase):
             call_args = mock_gen.call_args
             system_prompt = call_args.kwargs['system_prompt']
             self.assertIn("intentionally misleading", system_prompt)
-            self.assertIn("IGNORE the names", system_prompt)
+            self.assertIn("Recover the INTENT", system_prompt)
 
 if __name__ == "__main__":
     unittest.main()

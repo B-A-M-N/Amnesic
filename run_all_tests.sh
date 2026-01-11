@@ -14,6 +14,10 @@ echo "   [1c] Control: Determinism..."
 python3 tests/control_proofs/control_determinism.py
 if [ $? -ne 0 ]; then echo "Control Determinism Failed"; exit 1; fi
 
+echo "   [1d] Control Suite (Consolidated)..."
+python3 tests/control_proofs/control_suite.py
+if [ $? -ne 0 ]; then echo "Control Suite Failed"; exit 1; fi
+
 echo "--------------------------------------------"
 echo "2. Running Unit Tests (Step Verification)"
 export PYTHONPATH=$PYTHONPATH:.

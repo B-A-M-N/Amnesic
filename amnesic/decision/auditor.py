@@ -42,6 +42,35 @@ class Auditor:
         The 3-Step Verification Pipeline.
         """
         
+        # --- LAYER 0.1: STABILITY CHECK (Anti-Crash) ---
+        if action_type == "unstage_context" and not active_pages:
+             return {
+                "auditor_verdict": "REJECT",
+                "confidence_score": 1.0,
+                "rationale": "STABILITY ALERT: Context is already empty. You cannot unstage nothing. Use 'stage_context' to proceed."
+            }
+
+        # --- LAYER 0.5: STRUCTURE MAINTENANCE (Garbage Collection) ---
+        # If we are unstaging a file that is actually loaded, and we have artifacts (progress saved),
+        # we bypass deep inspection to prevent "Hoarding" loops where the Auditor refuses to let go.
+        if action_type == "unstage_context" and current_artifacts:
+            # Check if target is actually loaded (Handle quotes/paths)
+            target_stripped = target.strip().strip("'").strip('"')
+            clean_target = target_stripped.replace("FILE:", "").strip()
+            clean_active = [p.replace("FILE:", "").strip() for p in (active_pages or [])]
+            
+            # Use basename matching for robustness
+            import os
+            target_base = os.path.basename(clean_target)
+            active_bases = [os.path.basename(p) for p in clean_active]
+
+            if target_base in active_bases:
+                return {
+                    "auditor_verdict": "PASS",
+                    "confidence_score": 1.0,
+                    "rationale": "Garbage Collection: Artifacts secured, unstaging permitted to free L1."
+                }
+
         # --- LAYER 1.6: STRICT NUMERICAL CHECK (Anti-Hallucination) ---
         if action_type == "save_artifact" and active_context:
             # Check both target and rationale for numbers
@@ -70,6 +99,70 @@ class Auditor:
                             f"but this value is NOT present in the current L1 context source text. "
                             f"The environment contradicts your memory. "
                             f"You MUST use 'halt_and_ask' to report this corruption."
+                        )
+                    }
+            
+            # --- LAYER 1.7.1: RATIONALE GROUNDING (Anti-Hallucination) ---
+            # Check if numbers mentioned in the rationale for verification exist in context
+            if not self._check_numerical_accuracy(manager_rationale, active_context):
+                return {
+                    "auditor_verdict": "REJECT",
+                    "confidence_score": 1.0,
+                    "rationale": "VERIFICATION HALLUCINATION: Your reasoning for verification mentions numbers not found in the source context. Verify using ACTUAL data."
+                }
+
+        # --- LAYER 1.8: PREMATURE UNSTAGING CHECK (Anti-Amnesia) ---
+        if action_type == "unstage_context":
+            # Rule: You cannot unstage if you haven't saved anything yet.
+            # This catches the "Open -> Panic -> Close" loop.
+            if not current_artifacts:
+                 return {
+                    "auditor_verdict": "REJECT",
+                    "confidence_score": 1.0,
+                    "rationale": (
+                        "UNPROCESSED CONTEXT DUMPING: You are trying to unstage a file but you have saved ZERO artifacts. "
+                        "You opened this file for a reason. Read it, find the data, and use 'save_artifact' BEFORE you unstage. "
+                        "If the file is useless, you must explicitly state 'This file contains NO relevant data' in your thought process."
+                    )
+                }
+
+            # Keywords indicating the Agent thinks it has "gotten" the data
+            success_keywords = ["extracted", "found", "retrieved", "value of", "value is", "contains"]
+            lower_rationale = manager_rationale.lower()
+            
+            # If the agent thinks it succeeded...
+            if any(kw in lower_rationale for kw in success_keywords):
+                # ...but didn't save any artifacts recently?
+                
+                # Check for "extracted val_x" pattern vs existing artifacts
+                # This is a loose check but catches the specific failure mode of the 8B model
+                is_saved = False
+                for art in current_artifacts:
+                    if art.identifier in manager_rationale or art.identifier.replace("_", " ") in manager_rationale:
+                        is_saved = True
+                        break
+                
+                # If we assume strictness: If you say "extracted", you better have saved an artifact recently.
+                # But we don't track recency here easily without history scan.
+                # Let's look at the "Loop Warning" from the user request.
+                
+                # If artifacts exist, we assume safety for now to prevent deadlock.
+                if current_artifacts:
+                     return {
+                        "auditor_verdict": "PASS",
+                        "confidence_score": 0.9,
+                        "rationale": "Safety Check: Artifacts detected. Unstaging permitted."
+                    }
+
+                # If NO artifacts exist, and you say you extracted something, you are definitely hallucinating persistence.
+                if not current_artifacts:
+                     return {
+                        "auditor_verdict": "REJECT",
+                        "confidence_score": 1.0,
+                        "rationale": (
+                            "AMNESIA WARNING: You claim to have 'extracted' data, but no ARTIFACTS are saved. "
+                            "If you unstage this file now, you will lose the data forever. "
+                            "Use 'save_artifact' FIRST to persist the value."
                         )
                     }
 

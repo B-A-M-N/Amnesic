@@ -1,5 +1,6 @@
 import json
 import logging
+import re
 import ollama
 from typing import Dict, Any, Type, Optional, Union, List, Callable
 from pydantic import BaseModel
@@ -58,8 +59,13 @@ class OllamaDriver:
         Attempts to parse JSON from content, with healing for Markdown code blocks
         and extra text.
         """
-        import json
-        
+        # 0. Pre-cleaning: Remove Markdown Code Blocks
+        # Pattern finds ```json ... ``` or just ``` ... ``` and extracts content
+        code_block_pattern = r"```(?:json)?\s*(.*?)\s*```"
+        match = re.search(code_block_pattern, content, re.DOTALL)
+        if match:
+            content = match.group(1)
+
         # 1. Try Clean Parse
         try:
             data = json.loads(content)
@@ -87,8 +93,24 @@ class OllamaDriver:
                 return schema.model_validate(data)
         except (json.JSONDecodeError, ValueError):
             pass
+
+        # 4. JSON Repair (The "Healer") - fix common small model errors
+        try:
+            # Try to fix single quotes to double quotes (naive but effective for simple dicts)
+            # This regex looks for 'key': or 'value' patterns
+            repaired = content.replace("'", '"')
+            repaired = repaired.replace("True", "true").replace("False", "false").replace("None", "null")
+            # Try finding braces again in repaired string
+            start = repaired.find('{')
+            end = repaired.rfind('}') + 1
+            if start != -1 and end != 0:
+                json_str = repaired[start:end]
+                data = json.loads(json_str)
+                return schema.model_validate(data)
+        except (json.JSONDecodeError, ValueError):
+            pass
             
-        raise ValueError("Could not extract valid JSON from response.")
+        raise ValueError(f"Could not extract valid JSON from response. Content preview: {content[:100]}...")
 
     def generate_structured(
         self, 
@@ -164,8 +186,44 @@ class OllamaDriver:
                     if stream_callback:
                         stream_callback(content)
                 
-                # Parse the final accumulated string using safe parser
-                return self._safe_parse_json(full_content, schema)
+                full_text = full_content
+                
+                # --- PATCH START ---
+                # Attempt 1: Standard Parse (Fastest)
+                try:
+                    return self._safe_parse_json(full_text, schema)
+                except Exception:
+                    pass
+
+                # Attempt 2: Candidate Iteration (Robust)
+                # Iterate through every '{' in the text and try to parse a valid object
+                decoder = json.JSONDecoder()
+                pos = 0
+                parsed_candidates = []
+                
+                while True:
+                    pos = full_text.find('{', pos)
+                    if pos == -1:
+                        break
+                    try:
+                        # raw_decode returns (obj, end_index)
+                        obj, end = decoder.raw_decode(full_text, pos)
+                        # Try to validate schema immediately
+                        try:
+                            return schema.model_validate(obj)
+                        except Exception:
+                            # Valid JSON but wrong schema? Save for inspection if needed, or ignore
+                            pass
+                        # Move past this object
+                        pos = end
+                    except json.JSONDecodeError:
+                        # Not a valid object start, move forward one char
+                        pos += 1
+                
+                # If we get here, no valid schema object was found
+                print(f"\n[Driver Error] Failed to parse. Raw: {full_text[:200]}...")
+                raise ValueError("Could not extract valid JSON from response.")
+                # --- PATCH END ---
                 
             except Exception as e:
                 logger.error(f"Streaming structured generation failed: {str(e)}")

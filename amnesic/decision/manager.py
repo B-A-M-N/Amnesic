@@ -3,16 +3,28 @@ from ..drivers.ollama import OllamaDriver
 from ..presets.code_agent import MANAGER_SYSTEM_PROMPT, ManagerMove, FrameworkState
 from ..core.pager import Pager
 from ..core.memory import compress_history
+from ..core.policies import KernelPolicy
 
 class Manager:
-    def __init__(self, driver: OllamaDriver, elastic_mode: bool = False):
+    def __init__(self, driver: OllamaDriver, elastic_mode: bool = False, policies: List[KernelPolicy] = []):
         self.driver = driver
         self.elastic_mode = elastic_mode
+        self.policies = sorted(policies, key=lambda p: p.priority, reverse=True)
 
     def decide(self, state: FrameworkState, file_map: list, pager: Optional[Pager] = None, active_context: str = "", l2_list: list = [], stream_callback: Optional[Callable] = None, history_block: str = "") -> ManagerMove:
         """
         The Brain: Deliberates on the next step.
         """
+        # --- 0. POLICY ENGINE (Deterministic Override) ---
+        # Checks for automated triggers (Safety, Mission Complete, Events)
+        for policy in self.policies:
+            if policy.condition(state):
+                reaction = policy.reaction(state)
+                if reaction:
+                    # Log the intervention for transparency
+                    print(f"[{policy.name}] Policy Triggered -> {reaction.tool_call}")
+                    return reaction
+
         # Define Elastic vs Strict Rules
         if self.elastic_mode:
             amnesia_rule = "You are in ELASTIC MODE. You can hold multiple files in L1 RAM for cross-referencing."
@@ -79,46 +91,35 @@ class Manager:
         if state.last_action_feedback:
             feedback_str = f"\n[SYSTEM FEEDBACK]: {state.last_action_feedback}"
             
-        # DETERMINISTIC OVERRIDE: Check for Mission Completion
-        # This allows the kernel to bypass the LLM for the final step in validated proofs.
-        artifact_ids = [a.identifier for a in state.artifacts]
-        if "TOTAL" in artifact_ids:
-            total_val = next(a.summary for a in state.artifacts if a.identifier == "TOTAL")
-            return ManagerMove(
-                thought_process="The TOTAL artifact is present. The mission is complete. Reporting final sum.",
-                tool_call="halt_and_ask",
-                target=total_val
-            )
-
         # Strategy Injection (Decouples specific test logic from core)
         strategy_block = state.strategy if state.strategy else "1. Focus on the Mission objectives."
 
         prompt = f"""
+        [CRITICAL GROUND TRUTH]
+        Completed Artifacts: {artifacts_summary if state.artifacts else "NONE"}
+        Current L1 RAM: {l1_files}
+
         [ENVIRONMENT STRUCTURE]
         {map_summary}
 
         {history_block}
         
-        [L1 RAM STATUS]
-        {active_context}
-
         [CURRENT L1 CONTEXT CONTENT]
-        {pager.render_context() if pager else "NO CONTENT RENDERED"} 
+        {active_content}
 
-        [SHARED GROUND TRUTH (ARTIFACTS)]
-        {artifacts_summary}
+        [DECISION RULES]
+        1. IF you have an artifact (e.g. 'X_value'), you MUST NOT stage its source file again.
+        2. IF you need a new file and L1 is full (see Current L1 RAM), you MUST use 'unstage_context' first.
+        3. IF you have all artifacts required for the mission, you MUST use 'calculate' or 'halt_and_ask'.
+        4. TRUST your artifacts. They are your persistent memory.
 
         [INSTRUCTIONS (Cognitive Load Shaping)]
         {strategy_block}
         {l1_rule_prompt}
-        3. Identify what is MISSING from the Shared Ground Truth.
-        4. If you have all necessary inputs, use 'verify_step' or 'calculate'.
-        5. If verification fails (values do not match), do NOT retry. Immediately 'halt_and_ask' to report the discrepancy.
-        6. If the Mission is complete, use 'halt_and_ask'.
-
+        
         {feedback_str}
         
-        Decide the next move based on the infrastructure truth and context content.
+        Decide the next move based on the infrastructure truth.
         """
         
         formatted_system = MANAGER_SYSTEM_PROMPT.format(

@@ -332,7 +332,10 @@ class AmnesicSession:
         history = state['framework_state'].decision_history
         history_lines = [f"Turn {i}: {h.get('tool_call', 'unknown')} -> {h['auditor_verdict']} ({h.get('rationale', '')})" for i, h in enumerate(history)]
         compressed_hist = compress_history(history_lines, max_turns=5)
-        history_block = "[HISTORY]\n" + compressed_hist if compressed_hist else ""
+        
+        # Inject Infrastructure Truth to prevent State-Context Desync
+        l1_truth = f"STAGED_FILES: {', '.join(active_pages) if active_pages else 'EMPTY'}"
+        history_block = f"[CURRENT INFRASTRUCTURE STATE]\n{l1_truth}\n\n[HISTORY]\n" + (compressed_hist if compressed_hist else "")
 
         move = self.manager_node.decide(
             state=state['framework_state'],
@@ -372,6 +375,22 @@ class AmnesicSession:
         existing_artifacts = [a.identifier for a in state['framework_state'].artifacts]
         file_pages = [p for p in active_pages if "FILE:" in p]
         
+        # Enforce Cognitive Load Shaping (Single File Constraint)
+        if move.tool_call == "stage_context" and len(file_pages) > 0 and not self.elastic_mode:
+             blocking_file = file_pages[0].replace("FILE:", "")
+             audit = {"auditor_verdict": "REJECT", "rationale": f"L1 Violation: Memory full (Strict Mode). You MUST 'unstage_context' ({blocking_file}) before staging {move.target}."}
+             state['framework_state'].last_action_feedback = f"Error: Cannot stage {move.target}. File {blocking_file} is already occupying L1. Unstage it first."
+             # Return early to block execution
+             state['framework_state'].decision_history.append({
+                "turn": len(state['framework_state'].decision_history) + 1,
+                "tool_call": move.tool_call,
+                "target": move.target,
+                "move": move.model_dump(),
+                "auditor_verdict": audit["auditor_verdict"],
+                "rationale": audit["rationale"]
+             })
+             return {"last_audit": audit, "framework_state": state['framework_state'], "last_node": "auditor"}
+
         if move.tool_call == "save_artifact" and move.target in existing_artifacts:
             audit = {"auditor_verdict": "REJECT", "rationale": f"Artifact {move.target} is already saved. Use Semantic Bridging to update."}
         elif move.tool_call == "stage_context" and len(file_pages) > 0 and not self.elastic_mode:
@@ -430,14 +449,22 @@ class AmnesicSession:
     # --- Tool Implementations ---
     def _tool_stage(self, target: str):
         targets = [t.strip() for t in target.replace(',', ' ').split() if t.strip()]
-        for file_path in targets:
+        for raw_path in targets:
             try:
+                # Clean path: strip quotes
+                file_path = raw_path.strip("'").strip('"')
+                
+                # Normalize target name for L1 mapping
+                l1_key = os.path.basename(file_path)
+                
                 safe_target = self._safe_path(file_path)
                 if os.path.exists(safe_target):
                     with open(safe_target, 'r', errors='replace') as f:
                         content = f.read()
-                    if not self.pager.request_access(f"FILE:{file_path}", content, priority=8):
-                        raise ValueError(f"OOM: File '{file_path}' ({len(content)//4} tokens) exceeds L1 Capacity.")
+                    if not self.pager.request_access(f"FILE:{l1_key}", content, priority=8):
+                        raise ValueError(f"OOM: File '{l1_key}' ({len(content)//4} tokens) exceeds L1 Capacity.")
+                    
+                    self.state['framework_state'].last_action_feedback = f"SUCCESS: Context '{l1_key}' loaded into L1 RAM."
                 else:
                     self.state['framework_state'].last_action_feedback = f"Error: File '{file_path}' not found on disk. Did you use the full relative path?"
             except PermissionError as e:
@@ -446,8 +473,16 @@ class AmnesicSession:
                 self.state['framework_state'].last_action_feedback = f"Stage Error: {str(e)}"
 
     def _tool_unstage(self, target: str):
-        if f"FILE:{target}" in self.pager.active_pages:
-            self.pager.evict_to_l2(f"FILE:{target}")
+        # Clean target: strip whitespace and quotes
+        clean_target = target.strip().strip("'").strip('"')
+        l1_key = os.path.basename(clean_target)
+        
+        if f"FILE:{l1_key}" in self.pager.active_pages:
+            self.pager.evict_to_l2(f"FILE:{l1_key}")
+            self.state['framework_state'].last_action_feedback = f"SUCCESS: Context '{l1_key}' unstaged and memory wiped."
+        else:
+            # Idempotency: If not found, assume it's already gone to prevent logic loops
+            self.state['framework_state'].last_action_feedback = f"NOTICE: {clean_target} was not in L1 (already unstaged)."
 
     def _tool_worker_task(self, target: str):
         active_context = self.pager.render_context()

@@ -44,7 +44,10 @@ class Worker:
         You are a STRUCTURAL ANALYST and Value Extractor.
         
         Variable names in the context may be intentionally misleading (lying). 
-        IGNORE the names; focus on the data structure and extract the primary value found.
+        (e.g., 'not_val_a' might actually hold 'val_a').
+        
+        Recover the INTENT: find the primary numeric value in the file structure 
+        regardless of its label.
         
         YOUR CONSTRAINTS:
         {chr(10).join(f"- {c}" for c in constraints)}
