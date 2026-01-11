@@ -33,6 +33,8 @@ python3 tests/unit_tests/test_prefetch_unit.py
 if [ $? -ne 0 ]; then echo "Prefetch Unit Tests Failed"; exit 1; fi
 python3 tests/unit_tests/test_comparator_unit.py
 if [ $? -ne 0 ]; then echo "Comparator Unit Tests Failed"; exit 1; fi
+python3 tests/unit_tests/test_calculate_unit.py
+if [ $? -ne 0 ]; then echo "Calculate Tool Unit Tests Failed"; exit 1; fi
 python3 tests/unit_tests/test_determinism_unit.py
 if [ $? -ne 0 ]; then echo "Determinism Unit Tests Failed"; exit 1; fi
 python3 tests/unit_tests/test_cognitive_load_unit.py

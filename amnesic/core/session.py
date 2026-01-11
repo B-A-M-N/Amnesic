@@ -14,6 +14,7 @@ from amnesic.decision.manager import Manager, ManagerMove
 from amnesic.decision.auditor import Auditor
 from amnesic.decision.worker import Worker
 from amnesic.core.tool_registry import ToolRegistry
+from amnesic.core.policies import KernelPolicy, DEFAULT_COMPLETION_POLICY
 from amnesic.presets.code_agent import FrameworkState, Artifact
 from amnesic.core.memory import compress_history
 
@@ -38,7 +39,8 @@ class AmnesicSession:
                  strategy: str = None,
                  api_key: str = None,
                  base_url: str = None,
-                 elastic_mode: bool = False):
+                 elastic_mode: bool = False,
+                 policies: List[KernelPolicy] = []):
         
         self.mission = mission
         # Normalize to list of absolute paths
@@ -66,7 +68,9 @@ class AmnesicSession:
         self.sidecar = sidecar # Hive Mind connection
         
         # 2. Nodes
-        self.manager_node = Manager(self.driver, elastic_mode=elastic_mode)
+        # Policy Injection: Default + User Defined
+        active_policies = [DEFAULT_COMPLETION_POLICY] + policies
+        self.manager_node = Manager(self.driver, elastic_mode=elastic_mode, policies=active_policies)
         self.auditor_node = Auditor(goal=mission, constraints=["NO_DELETES"], driver=self.driver)
         
         # 3. Tool Registry
@@ -379,7 +383,7 @@ class AmnesicSession:
                  audit = {"auditor_verdict": "REJECT", "rationale": f"File {move.target} does not exist on disk."}
             else:
                 audit = {"auditor_verdict": "PASS", "rationale": "Staging permitted (L1 is empty)."}
-        elif move.tool_call in ["unstage_context", "save_artifact", "delete_artifact", "stage_artifact", "calculate", "verify_step", "edit_file", "write_file", "halt_and_ask", "compare_files", "switch_strategy"]:
+        elif move.tool_call in ["save_artifact", "delete_artifact", "stage_artifact", "calculate", "verify_step", "edit_file", "write_file", "halt_and_ask", "compare_files", "switch_strategy"]:
              audit = {"auditor_verdict": "PASS", "rationale": "Internal state management tool."}
         else:
             audit = self.auditor_node.evaluate_move(
@@ -590,8 +594,41 @@ class AmnesicSession:
 
         self.state['framework_state'].current_hypothesis = result_str
 
-    
-    def _tool_calculate(self, target: str): self._tool_verify_step(target)
+    def _tool_calculate(self, target: str):
+        arts = self.state['framework_state'].artifacts
+        summary_text = " ".join([a.summary for a in arts]) + f" {target}"
+        
+        operator = None
+        # Prioritize explicit symbols in target
+        if "*" in target: operator = "MULTIPLY"
+        elif "/" in target: operator = "DIVIDE"
+        elif "+" in target: operator = "ADD"
+        elif "-" in target: operator = "SUBTRACT"
+        # Fallback to word detection
+        elif "MULTIPLY" in summary_text.upper(): operator = "MULTIPLY"
+        elif "SUBTRACT" in summary_text.upper(): operator = "SUBTRACT"
+        elif "DIVIDE" in summary_text.upper(): operator = "DIVIDE"
+        elif "ADD" in summary_text.upper(): operator = "ADD"
+
+        if operator:
+            import re
+            nums = [int(n) for n in re.findall(r'\d+', summary_text)]
+            result = 0
+            if nums:
+                if operator == "ADD": result = sum(nums)
+                elif operator == "MULTIPLY": 
+                    result = 1
+                    for n in nums: result *= n
+                elif operator == "SUBTRACT": result = nums[0] - sum(nums[1:]) if len(nums) > 1 else nums[0]
+                elif operator == "DIVIDE": 
+                    result = nums[0]
+                    for n in nums[1:]:
+                        if n != 0: result /= n
+            result_str = f"Final Calculation ({operator}): {result}"
+            self.state['framework_state'].artifacts.append(Artifact(identifier="TOTAL", type="result", summary=result_str, status="committed"))
+            self.state['framework_state'].current_hypothesis = result_str
+        else:
+            self._tool_verify_step(target)
 
     
         
