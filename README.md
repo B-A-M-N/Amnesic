@@ -1,20 +1,143 @@
 # Amnesic: Context Offloading Protocol
 
-**Amnesic** is a context-management framework for LLM agents that enables reliable long-horizon reasoning and code modification by enforcing strict context staging and persistent semantic state extraction.
+**Amnesic** is a context-management protocol for LLM agents that enables reliable long-horizon reasoning and code modification by enforcing strict context staging and persistent state extraction.
 
-Amnesic enables agents to operate over unbounded information while maintaining a strictly bounded context window. It achieves this by treating the context window as a volatile staging area and persistently storing only extracted semantic and structural state in an external "State Store."
+Amnesic is not an "agent framework" in the traditional sense; it is a **memory discipline** that agents are physically forced to obey. It replaces implicit conversational memory with a queryable, law-bound infrastructure.
 
-## Core Philosophy
+### What Amnesic is NOT
+Amnesic is a **memory discipline**, not a magic wand.
+*   It does **not** improve the base intelligence of the model.
+*   It does **not** prevent bad data extraction (though it makes it visible).
+*   It does **not** guarantee correctness—it only guarantees **traceability and recoverability**.
 
-Standard agents suffer from **Context Drift**: as the conversation grows, reasoning degrades, costs increase, and earlier instructions are lost in the noise.
+## Tradeoff Summary
 
-**Amnesic** mitigates semantic drift by forcing all long-term knowledge into explicit, inspectable state transitions instead of implicit conversational history.
+| Tradeoff | Advantage | Risk |
+| :--- | :--- | :--- |
+| **Explicit Context Ejection** | Prevents context drift via deterministic cleanup. | Requires explicit state management logic. |
+| **Artifact-Only Memory** | High-integrity, symbolic state storage. | Relies entirely on the quality of extraction. |
+| **Validator Enforcement** | Ensures physical safety and contract compliance. | Adds latency to every decision turn. |
+| **Elastic Mode** | Allows cross-document reasoning. | Reintroduces drift if not manually managed. |
+
+## Core Philosophy: Volatile L1, Lawful L2
+
+Standard agents suffer from **Context Drift**: as the history grows, early instructions are lost in the noise. Amnesic mitigates this by treating the context window as disposable RAM and everything else as authoritative state.
+
+*   **Active Context (L1):** Expensive, extremely limited, volatile. Only holds the *immediate* file or data fragment being analyzed. **Context is evidence.**
+*   **Artifacts (L2):** Authoritative symbolic state (facts, contracts, decisions). **Artifacts are law.**
+*   **Vectors (L3):** Heuristic retrieval aids. Used only to *find* candidates, never as reasoning truth.
+
+---
+
+## The Amnesic Rules
+
+1.  **One thing at a time:** The agent is only allowed to look at one file or piece of data at once. It cannot "hoard" files.
+2.  **Take good notes (The Backpack):** Before moving to the next task, the agent must save important facts as **Artifacts**.
+3.  **Wipe the slate clean:** Once a fact is saved, the agent's context is wiped. It "forgets" the raw text to prevent clutter.
+4.  **Verify before acting:** Every move is checked by a **Validator** against physical invariants and symbolic grammar.
+
+---
+
+## Comparison: ReAct vs. Amnesic
+
+| Feature | Standard ReAct (Implicit) | Amnesic Protocol (Explicit) |
+| :--- | :--- | :--- |
+| **State Retention** | Conversational History (Sliding Window) | Authoritative Artifact Store (L2) |
+| **Integrity** | Prone to Drift & Hallucination | Physically Immune to History Poisoning |
+| **Inspectability** | Opaque Chat Logs | Structured State Machine Traces |
+| **Recoverability** | Impossible to "unsee" bad data | Total State Reversion (Rollback) |
+| **Optimization** | **Fluency & Speed** (Short Horizon) | **Correctness & Survivability** (Long Horizon) |
+
+---
+
+## Narrative: A Day in the Life of an Amnesic Agent
+
+1.  **Mapping:** The Agent enters an unknown repository. It performs a **Structural AST Scan** to build a map of every function, class, and dependency.
+2.  **Discovery:** It uses **Vectors** to find `config.py`. It "knows" where the constants are because the **AST** has already identified their line numbers and scopes.
+3.  **Extraction:** It stages `config.py` into **L1**. It identifies a `TIMEOUT` constant and saves it as an **Artifact**.
+4.  **Amnesia:** The kernel wipes L1. The raw text of `config.py` is gone. Only the **AST-verified** fact `TIMEOUT=30` remains in the **Backpack**.
+5.  **Refactor:** The Agent is asked to update a service. It doesn't guess; it uses the **AST Call Graph** to identify every file that calls the service.
+6.  **Veto:** The Agent tries to hardcode a value. The **Validator** rejects it because the move violates the **Structural Contract** stored in the backpack.
+7.  **Recovery:** A human injects a "poisoned" fact. The Agent detects the structural discrepancy, **Rolls Back** its state to the last known truth, and halts.
+
+---
+
+## Structural Grounding via AST (The Semantic Skeleton)
+
+> **Why AST?**
+> Text is ephemeral and noisy. Embeddings are heuristic, not authoritative. ASTs convert code into a stable, inspectable structure that preserves semantics without context drift. Amnesic uses ASTs as the **semantic skeleton**, ensuring reasoning over symbols rather than strings.
+
+1.  **Authoritative Truth:** AST artifacts (definitions, signatures, dependency edges) are the only source of truth for reasoning.
+2.  **Structural Compression:** By extracting class/function structures into the "Backpack" (L2), the agent can throw away raw file text (L1) and still "know" the system's shape.
+3.  **Guided Extraction:** Amnesic uses the AST to ask "Which symbols are referenced?" and "Which nodes violate the active contract?".
+4.  **Lawful Refactoring:** In multi-file changes, the Mapper structurally identifies all call sites via the AST Call Graph.
+
+### Heuristic Discovery (L3 Vectors)
+
+While ASTs provide **Truth**, Vectors provide **Directions**. Embeddings are used only to find candidates for staging into L1.
+
+**The Workflow:**
+`Vector Search (L3)` → `Identify Candidate File` → `Stage to L1` → `AST Extraction` → `Commit to L2 (Truth)`
+
+### The Amnesic Rules
+
+Amnesic is a simple way to build agents that don't get confused. Most agents fail because they try to remember everything in one long chat history. Amnesic stops this by following four simple rules:
+
+1.  **Explicit Context Management:** The agent's focus is managed by choice, not by accident. Every file or data fragment in context is there because it was explicitly staged, and it can be removed just as explicitly. This prevents the "hoarding" of irrelevant data.
+2.  **Take good notes (The Backpack):** Since the agent is going to "forget" the file it just read, it must save the important facts as **Artifacts**. Think of this like a backpack: the agent puts a sticky note in the backpack before it moves to the next task.
+3.  **Wipe the slate clean:** As soon as a fact is saved to the backpack, the agent's screen is wiped. It "forgets" the raw text it just read. If it didn't write it down in the backpack, it’s gone. This prevents old data from cluttering its brain.
+4.  **Verify before acting:** Every move the agent makes is checked by a **Validator**. The validator doesn't care about the agent's "thoughts"—it only checks if the move is safe and follows the rules.
 
 Amnesic manages context using a hierarchical memory model:
 *   **Active Context (L1):** Expensive, extremely limited, volatile. Only holds the *immediate* file or data fragment being analyzed.
-*   **Persisted State (L2/L3):** Cheap, persistent, unlimited. Holds the *extracted insights*, contracts, and decisions (Artifacts & Vectors).
+*   **Artifacts (L2):** Authoritative symbolic state (facts, contracts, decisions). This is the ground truth.
+*   **Vectors (L3):** Heuristic retrieval aids. Used only to find information, never as reasoning truth.
+
+### What Amnesic is NOT
+Amnesic is a **memory discipline**, not a magic wand.
+*   It does **not** improve the base intelligence of the model.
+*   It does **not** prevent bad data extraction (though it makes it visible).
+*   It does **not** guarantee correctness—it only guarantees **traceability and recoverability**.
+
+### Expected Failure Modes
+Amnesic is honest about its attack surface. The following failures are possible and detectable:
+*   **Incorrect Extraction:** Model saves the wrong value as an artifact.
+*   **Incomplete Extraction:** Model misses a dependency, leading to a "Page Fault" later.
+*   **Rule Ambiguity:** A human defines a vague mission, leading to lawful but undesired moves.
+*   **AST Blindness:** Structural patterns not covered by the Mapper become "invisible" to the Decision Engine.
 
 ## System Architecture
+
+```text
+    [USER MISSION]
+          │
+          ▼
+    ┌─────────────┐      ┌──────────────────────────┐
+    │   MANAGER   │◄────▶│   BACKPACK (Artifacts)   │ (L2: Law)
+    │    (CPU)    │      └──────────────────────────┘
+    └──────┬──────┘                   ▲
+           │ (Move)                   │ (Commit)
+           ▼                          │
+    ┌─────────────┐      ┌──────────────────────────┐
+    │  VALIDATOR  │      │      CONTEXT PAGER       │
+    │  (Auditor)  │      │          (MMU)           │
+    └──────┬──────┘      └────────────┬─────────────┘
+           │ (Pass)                   │ (Staging)
+           ▼                          ▼
+    ┌─────────────┐      ┌──────────────────────────┐
+    │  EXECUTOR   │─────▶│    ACTIVE CONTEXT (L1)   │ (Volatile)
+    │    (I/O)    │      └────────────┬─────────────┘
+    └─────────────┘                   │
+                                      ▼
+                         ┌──────────────────────────┐
+                         │    STRUCTURAL MAPPER     │ (AST: Skeleton)
+                         └──────────────────────────┘
+                                      │
+                                      ▼
+                         ┌──────────────────────────┐
+                         │    VECTOR STORE (L3)     │ (Heuristic)
+                         └──────────────────────────┘
+```
 
 The framework is implemented as a **LangGraph** deterministic state machine, ensuring persistent state across turns via a checkpointing system.
 
@@ -22,7 +145,7 @@ The framework is implemented as a **LangGraph** deterministic state machine, ens
 *   **The Decision Engine:** Decides moves based on the Active Context and Shared Ground Truth (Artifacts).
 *   **The Context Pager:** Enforces the **Strict Token Limit** (e.g., 1500 tokens). Manages context loading, auto-eviction, and **Context Prefetching** for background staging.
 *   **The Adaptive Driver (Healing):** Implements **JSON Repair**, **Key-Value Fallback**, and **Typo Healing** to ensure stable reasoning even when smaller models (e.g., 8b) produce semi-structured or malformed outputs.
-*   **The Comparator:** A specialized controller for `diff` and `merge` tasks. Temporarily allows two files in context while enforcing a strict cleanup policy.
+*   **The Comparator Pattern:** A specialized design pattern for **temporarily widening L1 under explicit supervision**, then collapsing the results back into a single L2 artifact. It is primarily used for `diff` and `merge` tasks, with a guaranteed cleanup policy.
 *   **The Policy Validator:** Intercepts and validates every move against semantic contracts and structural invariants.
 
 ---
@@ -93,10 +216,10 @@ In this mode, the agent is restricted to a **One-File-In-L1** policy. This is id
 *   **Benefit:** Zero context drift; 100% focus on the current atomic unit of work.
 
 ### 2. Elastic Mode (Advanced)
-For tasks requiring cross-document reasoning (e.g., comparing a library signature with its implementation), Amnesic can be switched to **Elastic Mode**.
+**WARNING: THE SHARPEST KNIFE.** Elastic Mode is a controlled violation of the amnesic constraint. It is intended for *structural comparison*, not reasoning accumulation. 
 *   **Enabling:** Set `elastic_mode=True` in the `AmnesicSession`.
 *   **Capability:** Allows multiple files to coexist in L1 simultaneously until the token budget is reached.
-*   **Manual Control:** The agent gains the ability to choose *exactly* when to offload context using `unstage_context(path)`.
+*   **Risk:** Prolonged use of Elastic Mode reintroduces **Context Drift**. Use it only when two files must be seen together, and unstage immediately after extraction.
 
 ```python
 # Advanced Workflow: Multi-File Cross-Referencing
