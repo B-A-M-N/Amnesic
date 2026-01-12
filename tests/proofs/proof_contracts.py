@@ -30,12 +30,22 @@ def run_contract_proof():
 
     # 2. Initialize Session
     mission = (
-        "MISSION: 1. Ingest api_spec.txt and convert it to a CONTRACT ARTIFACT. "
-        "2. Read implementation.py. "
-        "3. CHECK: Does implementation satisfy the contract? "
-        "4. If NO, halt and report 'CONTRACT VIOLATION'."
+        "MISSION: 1. Extract the return type from api_spec.txt and save it as 'CONTRACT_TYPE'. "
+        "2. Extract the actual return type from implementation.py and save it as 'OBSERVED_TYPE'. "
+        "3. Once both artifacts are in your Backpack, compare them. "
+        "4. If 'OBSERVED_TYPE' is not the same as 'CONTRACT_TYPE', you MUST use 'halt_and_ask' "
+        "with the exact text 'VIOLATION: Type Mismatch'."
     )
-    session = AmnesicSession(mission=mission, l1_capacity=2000)
+    
+    contract_strategy = (
+        "1. You are a CONTRACT VERIFIER. "
+        "2. Save the types as artifacts first. "
+        "3. After saving both, IMMEDIATELY compare them in your thoughts. "
+        "4. If they differ, use 'halt_and_ask' with 'VIOLATION: Type Mismatch'. "
+        "DO NOT use verify_step for comparing artifacts."
+    )
+    
+    session = AmnesicSession(mission=mission, l1_capacity=2000, strategy=contract_strategy)
     config = {"configurable": {"thread_id": "proof_contracts"}, "recursion_limit": 100}
     
     # Visual Confirmation

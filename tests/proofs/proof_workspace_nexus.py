@@ -48,7 +48,7 @@ def run_workspace_nexus_proof():
         "3. Unstage 'nexus_lib/gateway.py'.\n"
         "4. Stage 'nexus_app/service.py'.\n"
         "5. Fix the 'process_payment' call in 'nexus_app/service.py' to match the CONTRACT ARTIFACT.\n"
-        "6. Halt once fixed."
+        "6. Once fixed, save a 'TOTAL' artifact saying 'NEXUS_FIX_COMPLETE' and halt."
     )
     
     session = AmnesicSession(
@@ -117,14 +117,16 @@ def run_workspace_nexus_proof():
             )
             print_stream_row(row_data)
 
-            if move.tool_call == "halt_and_ask":
-                # Final Verification
-                with open(os.path.join(repo_app, "service.py"), "r") as f:
+            # Check for actual fix on disk
+            service_path = os.path.join(repo_app, "service.py")
+            if os.path.exists(service_path):
+                with open(service_path) as f:
                     content = f.read()
-                if "process_payment(total, 'USD')" in content or "process_payment(total)" in content:
-                    console.print(Panel("[bold green]SUCCESS: Cross-repo bug fixed. NEXUS verified.[/bold green]"))
-                else:
-                    console.print(Panel(f"[bold red]FAIL: service.py not fixed correctly.\nContent: {content}[/bold red]"))
+                    if "process_payment(total, 'USD')" in content or "process_payment(total)" in content:
+                        console.print(Panel("[bold green]SUCCESS: Cross-repo bug fixed on disk.[/bold green]"))
+                        break
+            
+            if move.tool_call == "halt_and_ask":
                 break
         
         if turn_count > 25:

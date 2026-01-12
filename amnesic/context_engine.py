@@ -44,7 +44,7 @@ class ContextEngine:
                                 content = f.read()
                             
                             # Chunking? For MVP, one file = one chunk.
-                            # Qwen-3B handles ~32k context, so small files are fine.
+                            # Qwen-7B handles ~32k context, so small files are fine.
                             self.vector_store.add_document(
                                 doc_id=rel_path,
                                 content=content,

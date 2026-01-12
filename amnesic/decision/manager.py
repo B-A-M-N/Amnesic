@@ -27,13 +27,24 @@ class Manager:
 
         # Define Elastic vs Strict Rules
         if self.elastic_mode:
-            amnesia_rule = "You are in ELASTIC MODE. You can hold multiple files in L1 RAM for cross-referencing."
-            eviction_rule = "Files remain in L1 until you explicitly 'unstage_context' them or memory hits capacity."
-            l1_rule_prompt = "2. L1 RAM RULE: You can hold MULTIPLE files in L1. Load what you need to see together."
+            amnesia_rule = "MODE: ELASTIC. You are allowed to stage multiple files simultaneously. Use 'unstage_context' only when necessary to free up tokens."
+            eviction_rule = "Memory pressure is handled automatically."
         else:
-            amnesia_rule = "If a file is in the CURRENT L1 CACHE, you MUST use 'save_artifact', 'edit_file' or 'verify_step'."
-            eviction_rule = "Once an artifact is saved, the kernel will AUTO-EVICT the file to clear space."
-            l1_rule_prompt = "2. L1 RAM RULE: Only ONE file can be in L1 at a time. If [L1 RAM STATUS] shows a file and you need another, you MUST use 'unstage_context' first."
+            amnesia_rule = "MODE: STRICT AMNESIA (One-File Limit). You MUST finish with the current file (Save Artifact -> Unstage) BEFORE opening a new one."
+            eviction_rule = "L1 IS FULL. To read a new file, you MUST unstage the current one first."
+            l1_rule_prompt = "2. L1 RAM RULE: Only ONE file can be in L1 at a time. If 'Current L1 RAM' shows a file and you need another, you MUST use 'unstage_context' first."
+            
+            # DYNAMIC GUARD: If L1 is full, explicitly forbid staging
+            file_count = 0
+            if pager:
+                file_count = len([k for k in pager.active_pages.keys() if "FILE:" in k])
+            elif active_context and "EMPTY" not in active_context:
+                file_count = 1 # Approximation for stateless mode
+
+            if file_count > 0:
+                l1_rule_prompt += "\n        WARNING: L1 IS FULL. YOU MUST 'unstage_context' BEFORE STAGING ANYTHING ELSE."
+                if not state.artifacts:
+                    l1_rule_prompt += "\n        CRITICAL: You have a file open but ZERO artifacts. Did you save the data? Use 'save_artifact' NOW before unstaging!"
 
         # 1. Update MMU Clock
         if pager:
@@ -48,35 +59,29 @@ class Manager:
         state_dump = state.model_dump_json(indent=2)
         
         # Prepare Context (L1 Cache)
-        # Format the file map into a clean, readable list for the 3B model
         map_lines = []
         for f in file_map:
             path = f.get('path', 'unknown')
-            # Handle both raw AST list and simplified dict
-            if isinstance(f, dict) and 'classes' in f:
-                classes = [c['name'] for c in f.get('classes', [])]
-                funcs = [func['name'] for func in f.get('functions', [])]
-            elif isinstance(f, dict) and 'classes_and_funcs' in f: # hypothetical
-                classes = []
-                funcs = []
-            else:
-                 # Fallback for simple dicts or strings
-                 classes = []
-                 funcs = []
-
+            classes = [c['name'] for c in f.get('classes', [])]
+            funcs = [func['name'] for func in f.get('functions', [])]
             line = f"- {path}"
-            if classes:
-                line += f" [Classes: {', '.join(classes)}]"
-            if funcs:
-                line += f" [Funcs: {', '.join(funcs)}]"
+            if classes: line += f" [Classes: {', '.join(classes)}]"
+            if funcs: line += f" [Funcs: {', '.join(funcs)}]"
             map_lines.append(line)
-            
         map_summary = "\n".join(map_lines)[:2500]
         
-        # Tools are dynamically fetched from the schema to ensure sync
         tools_list = ManagerMove.model_json_schema()['properties']['tool_call']['enum']
         
-        l1_files = [f.replace("FILE:", "") for f in (list(pager.active_pages.keys()) if pager else [active_context] if active_context else [])]
+        l1_files = []
+        if pager:
+            for page in pager.active_pages.values():
+                name = page.id.replace("FILE:", "")
+                if page.pinned:
+                    name += " (PINNED: CANNOT UNSTAGE)"
+                l1_files.append(name)
+        else:
+            l1_files = [active_context] if active_context else []
+
         l2_files = [f.replace("FILE:", "") for f in (l2_list if not pager else list(pager.swap_disk.keys()))]
         
         # Render ACTUAL content for the prompt
@@ -86,18 +91,51 @@ class Manager:
         found_artifacts = [f"{a.identifier}: {a.summary}" for a in state.artifacts]
         artifacts_summary = ", ".join(found_artifacts) if found_artifacts else "None"
         
+        # CRITICAL: L1 OCCUPANCY WARNING
+        l1_warning = ""
+        user_files_staged = [f.replace("FILE:", "").strip() for f in pager.active_pages.keys() if "SYS:" not in f] if pager else []
+        
+        if user_files_staged:
+            l1_warning = f"""
+        [CRITICAL: L1 RAM IS OCCUPIED]
+        The user file {user_files_staged} is ALREADY OPEN. 
+        - DO NOT use 'stage_context' for this file.
+        - READ the content below in [CURRENT L1 CONTEXT CONTENT].
+        - IF you have not already saved its data, use 'save_artifact' NOW.
+        - IF you are finished with it, you MUST 'unstage_context' to free L1.
+        """
+        elif not l1_files or (len(l1_files) == 1 and "MISSION" in l1_files[0]):
+             l1_warning = "\n        [NOTICE: L1 RAM IS EMPTY]. You must 'stage_context' a file to see data."
+
         # Prepare critical feedback block
-        feedback_str = ""
+        feedback_alert = ""
         if state.last_action_feedback:
-            feedback_str = f"\n[SYSTEM FEEDBACK]: {state.last_action_feedback}"
-            
+            feedback_msg = state.last_action_feedback
+            if "LOOP DETECTED" in feedback_msg or "STALEMATE" in feedback_msg:
+                feedback_alert = f"\n\n[SYSTEM ALERT - URGENT]: YOU ARE LOOPING. The last action was REJECTED. DO NOT TRY IT AGAIN. {feedback_msg}\nCHANGE STRATEGY IMMEDIATELY."
+            else:
+                feedback_alert = f"\n\n[SYSTEM ALERT]: {feedback_msg}\n"
+
+        # Loop detection for prompt injection
+        banned_actions = ""
+        # Generic loop prevention could go here in the future
+
+
         # Strategy Injection (Decouples specific test logic from core)
         strategy_block = state.strategy if state.strategy else "1. Focus on the Mission objectives."
 
         prompt = f"""
-        [CRITICAL GROUND TRUTH]
-        Completed Artifacts: {artifacts_summary if state.artifacts else "NONE"}
-        Current L1 RAM: {l1_files}
+        [MISSION PROGRESS]
+        {state.task_intent}
+        
+        [CRITICAL GROUND TRUTH (The Backpack)]
+        You currently hold the following persistent Artifacts: {artifacts_summary if state.artifacts else "NONE"}
+        Your Active L1 RAM contains: {l1_files}
+        {l1_warning}
+        {banned_actions}
+        {feedback_alert}
+        
+        INSTRUCTION: Do NOT attempt to re-read files or re-save data for artifacts you already have in 'The Backpack'.
 
         [ENVIRONMENT STRUCTURE]
         {map_summary}
@@ -108,16 +146,11 @@ class Manager:
         {active_content}
 
         [DECISION RULES]
-        1. IF you have an artifact (e.g. 'X_value'), you MUST NOT stage its source file again.
-        2. IF you need a new file and L1 is full (see Current L1 RAM), you MUST use 'unstage_context' first.
-        3. IF you have all artifacts required for the mission, you MUST use 'calculate' or 'halt_and_ask'.
-        4. TRUST your artifacts. They are your persistent memory.
-
-        [INSTRUCTIONS (Cognitive Load Shaping)]
-        {strategy_block}
-        {l1_rule_prompt}
-        
-        {feedback_str}
+        1. MISSION FIRST: Look at your 'Completed Artifacts'. What is MISSING? Only stage files for MISSING data.
+        2. IF you have an artifact (e.g. 'PROTOCOL'), DO NOT stage its source file again.
+        3. IF you need a new file and L1 is full, you MUST use 'unstage_context' first.
+        4. IF you have all artifacts (PROTOCOL, VAL_A, VAL_B), use 'calculate' or 'verify_step' then 'halt_and_ask'.
+        5. TRUST your artifacts. They are your persistent memory.
         
         Decide the next move based on the infrastructure truth.
         """
@@ -128,7 +161,7 @@ class Manager:
             l1_files=l1_files,
             l2_files=l2_files,
             artifacts=artifacts_summary,
-            feedback=feedback_str,
+            feedback=feedback_alert,
             amnesia_rule=amnesia_rule,
             eviction_rule=eviction_rule
         )

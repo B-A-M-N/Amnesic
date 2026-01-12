@@ -72,6 +72,10 @@ class DynamicPager:
             # Update priority if explicitly requested with higher
             if priority > page.priority:
                 page.priority = priority
+            # REFRESH CONTENT if provided (Crucial for edit_file/write_file synchronization)
+            if content:
+                page.content = content
+                page.tokens = len(content) // 4
             return True
 
         # 2. L2 Hit (Promote)

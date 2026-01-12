@@ -10,12 +10,23 @@ class DecisionStep(BaseModel):
     status: Literal["pending", "in_progress", "complete", "blocked"]
     reasoning: str = Field(..., description="Why is this step necessary?")
 
+import re
+
 class Artifact(BaseModel):
     """Represents a concrete output produced (Code, Config, etc)."""
     identifier: str = Field(..., description="Filename or variable name")
     type: Literal["code_file", "config", "search_result", "error_log", "text_content", "result"]
     summary: str = Field(..., description="One-line description of contents")
     status: Literal["staged", "committed", "needs_review", "verified_invariant"]
+
+    @field_validator("identifier")
+    @classmethod
+    def validate_identifier(cls, v: str) -> str:
+        # Strict Symbolic Grammar: Allows Alphanumeric, underscores, dots (for files), and hyphens.
+        # Rejects spaces, punctuation, or long prose.
+        if not re.match(r"^[a-zA-Z0-9_.-]{1,64}$", v):
+            raise ValueError(f"Invalid Artifact Identifier: '{v}'. Must be a symbolic name or filename, no spaces.")
+        return v
 
 # --- 2. The Framework State (The "Save File") ---
 
@@ -79,33 +90,30 @@ TOOL DESCRIPTIONS:
 
 [WORKSPACE STATE]
 ACTIVE CONTEXT (Files currently open): {l1_files}
-PAGER STAGING (Files on disk): {l2_files}
 SAVED ARTIFACTS:
 {artifacts}
 
-{feedback}
-
-### CRITICAL MEMORY RULES (READ CAREFULLY) ###
-1. **Volatile Context:** Your extracted thoughts are NOT permanent. 
-2. **The Wipe:** When you call `unstage_context` or switch files, your short-term memory (L1) is completely ERASED.
-3. **The Protocol:** 
-   - IF you read a value (like 'val_x') from a file...
-   - THEN you MUST use `save_artifact` to store it immediately.
-   - ONLY THEN can you unstage the file.
-4. **Loop Warning:** If you unstage without saving, you will forget the value and be forced to read the file again. This causes a failure loop.
+### THE AMNESIC SEQUENCE (MANDATORY) ###
+1. **STAGE**: Open a file using `stage_context`.
+2. **EXTRACT**: Find the relevant data.
+3. **SAVE**: Call `save_artifact` IMMEDIATELY. 
+   - **NOTE**: `save_artifact` is the ONLY tool for saving data. DO NOT use 'write_artifact' or other non-existent tools.
+   - DO NOT try to read the next file yet.
+   - DO NOT just say "I found it" in thoughts.
+   - YOU MUST CREATE THE ARTIFACT.
+4. **UNSTAGE**: Once the artifact is saved, use `unstage_context` to close the file.
+5. **REPEAT**: Only then, move to the next file.
 
 [STRICT RULES]
 1. {amnesia_rule}
-2. WARNING: Unstaging a file wipes your memory of it immediately. You MUST use 'save_artifact' to save any data you need as an ARTIFACT *before* using 'unstage_context'.
-3. EXTRACT BEFORE FORGET: If you identify mission-critical data in a file, you MUST save it BEFORE you unstage. If you unstage without saving, you will FORGET the data and have to re-stage the file.
-4. You are FORBIDDEN from using 'stage_context' on a file that is already in Active Context.
-5. If you have found the data you need (X or Y), you MUST save it as an ARTIFACT using 'save_artifact' immediately.
-6. {eviction_rule}
-7. UPDATE PROTOCOL: You cannot overwrite artifacts directly. To update, save to 'TEMP_VAL', delete the old artifact, stage 'TEMP_VAL' back into Active Context, and then save to the final key.
-8. GOAL PRIORITY: Once the specific value or state requested in the MISSION is achieved in your Artifacts, you MUST use 'halt_and_ask' immediately. Do NOT perform unnecessary verifications.
-9. ONLY reference files listed in the [ENVIRONMENT STRUCTURE]. If it is not on the map, it does not exist.
-10. When you have X and Y, use 'halt_and_ask' to output the sum.
-11. READ-THEN-RELEASE: You are FORBIDDEN from calling 'unstage_context' on a file unless you have already called 'save_artifact' to extract its relevant data (or confirmed it is noise). Unstaging without saving is a CRITICAL FAILURE.
+2. {eviction_rule}
+3. **EXTRACT-THEN-EXIT**: In STRICT mode, if you just used `stage_context` to open a file, you are FORBIDDEN from using `unstage_context` until you have used `save_artifact` to store its data. 
+4. **SEE IT, SAVE IT**: If you see mission data in the `[CURRENT L1 CONTEXT CONTENT]` block, you MUST use `save_artifact` to store it immediately. 
+5. **ONE THING AT A TIME**: In STRICT mode, if you have a file open, you CANNOT open another one until you extract the value and close the current one.
+6. **SAVE OR DIE**: If you unstage a file *without* saving artifacts, you will forget everything and be forced to start over. However, IF YOU HAVE SAVED ARTIFACTS, you CAN and MUST unstage to clear L1 for the next file.
+7. **UPDATE PROTOCOL**: To update an artifact, simply use `save_artifact` with the same key. The kernel will allow it IF you have the file containing the new evidence open in L1.
+
+{feedback}
 
 [FEW-SHOT EXAMPLES]
 Example 1 (Staging):
@@ -123,10 +131,15 @@ Example 2 (Extraction):
 }}
 
 OUTPUT FORMAT (JSON ONLY - ALL FIELDS REQUIRED):
+- thought_process: START by listing your Backpack Artifacts. Then state the SINGLE next logical step. (MAX 200 characters).
+- tool_call: tool_name
+- target: target_value
+
+Example:
 {{
-  "thought_process": "Step-by-step reasoning...",
-  "tool_call": "tool_name",
-  "target": "target_value"
+  "thought_process": "Backpack: [None]. L1 empty. I need to find the protocol. Staging logic_gate.txt.",
+  "tool_call": "stage_context",
+  "target": "logic_gate.txt"
 }}
 
 CURRENT FRAMEWORK STATE:
@@ -139,10 +152,20 @@ CURRENT FRAMEWORK STATE:
 WARNING: If you skip step 2, the data is LOST forever.
 
 ### STATE CONSISTENCY RULE ###
+- **INFRASTRUCTURE TRUTH**: You are FORBIDDEN from using 'stage_context' on files that do not appear in the [ENVIRONMENT STRUCTURE] list above.
 - Before you act, check the 'Artifacts' list.
-- IF an artifact exists (e.g., 'X_value=38'), DO NOT try to read that file again.
+- IF an artifact exists (e.g., 'X_value=38' or 'CONTRACT_ARTIFACT'), **DO NOT** try to read that file again or perform that task again. MOVE TO THE NEXT STEP IN THE MISSION.
+- **CONTRACT CHECK**: If you have a 'CONTRACT' artifact, compare it line-by-line with any code currently in L1. If the code does not match the mandatory shape or logic, you MUST use 'halt_and_ask' IMMEDIATELY with the reason 'CONTRACT VIOLATION: <details>'.
+- **MISSION COMPLETE**: If you have all the required data or have performed all requested steps, you MUST save a 'TOTAL' artifact IMMEDIATELY. This is the only way to signal completion.
+- **GARBAGE COLLECTION**: If a file is no longer needed (e.g., refactored away or all data extracted), you MUST use 'unstage_context' IMMEDIATELY to free L1 space.
+- **MULTI-REPO PRECISION**: When using `edit_file` in multi-repo environments, you MUST specify the full path including the repo directory (e.g., 'nexus_app/service.py') to avoid ambiguity.
+- **THE VOID**: If L1 RAM is EMPTY and you have all required artifacts, you MUST use 'halt_and_ask' IMMEDIATELY. Do NOT try to stage files again.
+- IF you receive positive feedback (e.g., starts with 'SUCCESS'), **TRUST IT**. Do not verify what you just did; move to the next step immediately.
+- IF you used `compare_files`, a 'MERGED_' artifact is created. Use its content to `write_file`.
 - TRUST the artifacts. They are your long-term memory.
-- FOCUS only on what is missing (e.g., 'Y_value').
+- FOCUS only on what is missing. If you have the contract, update the client.
+- **STOP LOOPING**: If your last action was rejected or you are repeating yourself, CHANGE STRATEGY immediately.
+- **NO REDUNDANCY**: Do not re-stage files you have already extracted data from. Check your 'Decision History' and 'Saved Artifacts' before every move.
 
 ### ⚠️ AMNESIC PROTOCOL WARNING ⚠️
 1. **Volatile Memory:** Your L1 Context is **wiped instantly** when you unstage a file.
@@ -168,6 +191,13 @@ VALID OUTCOMES:
 - HALT: If the mission is fully complete and no more actions are needed.
 
 If the tool is 'stage_context', almost always PASS it.
+If the tool is 'save_artifact' and the file mentioned in the target is currently open in L1, PASS it. 
+Extracting data into artifacts is the only way the agent can remember it.
+
+IMPORTANT:
+- You are NOT the Manager. Do NOT output tool calls (like stage_context).
+- Only judge the *Action* provided in the prompt.
+- **OUTPUT RAW JSON ONLY**. No markdown, no 'THOUGHT:', no explanations outside the JSON.
 
 OUTPUT FORMAT (JSON ONLY):
 {{

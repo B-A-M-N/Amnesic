@@ -13,22 +13,18 @@ from amnesic.core.session import AmnesicSession
 def run_persona_swap_proof():
     console = Console()
     
-    # 1. Setup: A monolithic spaghetti function
-    code = """
-def process_order(order):
-    # Monolithic function
-    print(f"Processing order {order['id']}")
-    if order['price'] < 0:
-        raise ValueError("Invalid price")
-    if not order['items']:
-        raise ValueError("No items")
-    
-    total = order['price'] * 1.08 # Tax
-    
-    print(f"Saving order {order['id']} with total {total}")
-    return total
-"""
-    with open("app.py", "w") as f: f.write(code)
+    # 1. Setup: Monolith needing decomposition
+    with open("app.py", "w") as f:
+        f.write("def process_order(order):\n"
+                "    # Monolithic function\n"
+                "    print(f\"Processing order {order['id']}\")\n"
+                "    if order['price'] < 0:\n"
+                "        raise ValueError(\"Invalid price\")\n"
+                "    if not order['items']:\n"
+                "        raise ValueError(\"No items\")\n\n"
+                "    total = order['price'] * 1.08 # Tax\n\n"
+                "    print(f\"Saving order {order['id']} with total {total}\")\n"
+                "    return total\n")
 
     console.print(Panel(
         "[bold white]SCENARIO: The Spaghetti Decomposition (Persona Swap)[/bold white]\n"
@@ -38,17 +34,14 @@ def process_order(order):
         "[bold yellow]Challenge:[/bold yellow] Use 'switch_strategy' to transition from high-level design to complex structural rewriting.",
         title="Capability 11: Persona Swap", border_style="blue"
     ))
-    
-    console.print("[bold]Original Code:[/bold]")
-    console.print(Syntax(code, "python", theme="monokai"))
-    console.print(Rule(style="dim"))
 
     # 2. Initialize Session
     mission = (
-        "1. Read app.py. Create a 'REFACTOR_PLAN' artifact detailing how to split 'process_order'.\n"
-        "2. SWITCH strategy to 'IMPLEMENTER'.\n"
-        "3. EDIT app.py to implement the split and verify it works by reading the file back.\n"
-        "4. HALT once app.py is refactored."
+        "MISSION: 1. Architect Mode: Read app.py. "
+        "2. Create a REFACTOR_PLAN artifact specifying how to split the function. "
+        "3. Switch Strategy to 'IMPLEMENTER'. "
+        "4. Implement the split in app.py. "
+        "5. Halt once complete."
     )
     
     # Initial Strategy: The Architect

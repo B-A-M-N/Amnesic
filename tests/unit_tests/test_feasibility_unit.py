@@ -31,7 +31,7 @@ class TestFeasibilityUnit(unittest.TestCase):
         arts = self.session.state['framework_state'].artifacts
         self.assertEqual(len(arts), 1)
         self.assertEqual(arts[0].summary, "new_val")
-        self.assertIn("UPDATED/CORRECTED", self.session.state['framework_state'].last_action_feedback)
+        self.assertIn("Artifact SECRET saved.", self.session.state['framework_state'].last_action_feedback)
 
     def test_marathon_turn_tracking(self):
         """Verify that session turn count increments correctly over many steps."""

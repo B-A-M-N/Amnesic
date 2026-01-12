@@ -1,8 +1,17 @@
 import os
-import logging
+import sys
+import random
+import time
 from rich.console import Console
+from rich.table import Table
+from rich.progress import Progress
 from rich.panel import Panel
-from amnesic.core.pager import Pager
+
+sys.path.append(os.path.abspath(os.path.join(os.path.dirname(__file__), "../../")))
+
+from amnesic.core.dynamic_pager import DynamicPager
+from amnesic.tools.vector_store import VectorStore
+import logging
 
 console = Console()
 # Suppress Pager logs for clean output
@@ -33,7 +42,7 @@ def run_real_stress_test():
     files = generate_files()
     
     # Capacity 300: Forces eviction on 2nd file load (157 + 152 > 300)
-    pager = Pager(capacity_tokens=300)
+    pager = DynamicPager(capacity_tokens=300)
     
     # Use a mock "Memory" to track what the Agent *knows* (vs what is in Context)
     agent_memory = {}

@@ -65,16 +65,16 @@ class TestFrameworkDiagnostics(unittest.TestCase):
 
     def test_history_compression_logic(self):
         """Verify that history compression collapses old turns correctly."""
-        history = [f"Turn {i}: Action" for i in range(10)]
+        # Use more than 10 turns to trigger cutoff in memory.py
+        history = [f"Turn {i}: Action -> PASS" for i in range(15)]
         
         compressed = compress_history(history, max_turns=5)
         
         # Should have a Milestone line
         self.assertIn("MILESTONE: Successfully processed", compressed)
-        # Should have the last 3 turns
-        self.assertIn("Turn 9: Action", compressed)
-        self.assertIn("Turn 8: Action", compressed)
-        self.assertIn("Turn 7: Action", compressed)
+        # Should have the last few turns
+        self.assertIn("Turn 14: Action", compressed)
+        self.assertIn("Turn 13: Action", compressed)
         # Should NOT have the first turn (Turn 0)
         self.assertNotIn("Turn 0: Action", compressed)
 
@@ -83,7 +83,7 @@ class TestFrameworkDiagnostics(unittest.TestCase):
         # ExecutionEnvironment just sets the path, it doesn't strictly validate existence on init
         # but let's check if it handles it gracefully.
         session = AmnesicSession(mission="Test", root_dir="/non/existent/path/9999")
-        self.assertEqual(session.env.root_dir, "/non/existent/path/9999")
+        self.assertEqual(session.env.root_dirs, ["/non/existent/path/9999"])
         
         # Scan should return empty list without crashing
         repo_map = session.env.refresh_substrate()

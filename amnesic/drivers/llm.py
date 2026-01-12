@@ -8,9 +8,10 @@ from .base import LLMDriver
 logger = logging.getLogger("amnesic.driver.openai")
 
 class OpenAIDriver(LLMDriver):
-    def __init__(self, api_key: str, model_name: str = "gpt-4o", base_url: Optional[str] = None, temperature: float = 0.7):
+    def __init__(self, api_key: str, model_name: str = "gpt-4o", base_url: Optional[str] = None, temperature: float = 0.7, seed: Optional[int] = None):
         self.model_name = model_name
         self.temperature = temperature
+        self.seed = seed
         self.client = openai.OpenAI(api_key=api_key, base_url=base_url)
 
     def embed(self, text: str) -> List[float]:
@@ -46,6 +47,7 @@ class OpenAIDriver(LLMDriver):
                     messages=messages,
                     stream=True,
                     temperature=self.temperature,
+                    seed=self.seed,
                     response_format={"type": "json_object"}
                 )
                 

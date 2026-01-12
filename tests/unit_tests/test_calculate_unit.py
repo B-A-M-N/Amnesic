@@ -1,6 +1,7 @@
 import unittest
 import sys
 import os
+import re
 from unittest.mock import MagicMock
 
 sys.path.append(os.path.abspath(os.path.join(os.path.dirname(__file__), "../../")))
@@ -22,8 +23,6 @@ class TestCalculateToolEdgeCases(unittest.TestCase):
         """Verify handling of negative numbers in the expression string."""
         # The regex findall(r'\d+') will find [10, 5]. 
         # The operator '-' will then do 10 - 5 = 5.
-        # Note: Current implementation doesn't support negative literals in regex,
-        # but the '-' operator performs subtraction on found integers.
         self.session._tool_calculate("10 - 5") 
         self._assert_result(5, "SUBTRACT")
 
@@ -35,32 +34,26 @@ class TestCalculateToolEdgeCases(unittest.TestCase):
     def test_math_operator_precedence_hierarchy(self):
         """
         Verify the fixed precedence hierarchy of the tool:
-        MULTIPLY > DIVIDE > ADD > SUBTRACT (based on the elif chain).
+        MULTIPLY > DIVIDE > SUBTRACT > ADD (based on the if/elif chain).
         """
         # "10 + 2 * 5"
-        # Since '*' is first in the elif chain, it will be selected as the operator.
+        # Since '*' is detected, it triggers MULTIPLY.
         # findall captures [10, 2, 5].
-        # result = 1 * 10 * 2 * 5 = 100.
-        # This test ensures we understand and LOCK IN the current implementation's behavior.
+        # Implementation uses 10 * 2 * 5 = 100.
         self.session._tool_calculate("10 + 2 * 5")
         self._assert_result(100, "MULTIPLY")
 
     def test_math_zero_division_safety(self):
-        """Verify division by zero does not crash the kernel."""
-        # result = nums[0] / nums[1] ... if n != 0
+        """Verify division by zero produces an error artifact."""
         self.session._tool_calculate("10 / 0")
-        # 10 / 0 results in 10 (it skips the 0).
-        self._assert_result(10, "DIVIDE")
-
-    def test_fallback_no_operator(self):
-        """Verify delegation to verify_step when no mathematical symbols are present."""
-        # Mock verify_step to see if it's called
-        self.session._tool_verify_step = MagicMock()
-        self.session._tool_calculate("just a string")
-        self.session._tool_verify_step.assert_called_once_with("just a string")
+        artifacts = self.session.state['framework_state'].artifacts
+        total_artifact = next((a for a in artifacts if a.identifier == "TOTAL"), None)
+        self.assertIsNotNone(total_artifact)
+        self.assertEqual(total_artifact.type, "error_log")
+        self.assertIn("Division by zero", total_artifact.summary)
 
     def test_math_multiple_operands(self):
-        """Verify the tool can sum more than two numbers in a single call."""
+        """Verify the tool sums numbers (default ADD) correctly."""
         # result = sum([1, 2, 3]) = 6
         self.session._tool_calculate("1 + 2 + 3")
         self._assert_result(6, "ADD")
@@ -69,10 +62,11 @@ class TestCalculateToolEdgeCases(unittest.TestCase):
         artifacts = self.session.state['framework_state'].artifacts
         total_artifact = next((a for a in artifacts if a.identifier == "TOTAL"), None)
         self.assertIsNotNone(total_artifact)
-        self.assertIn(f"Final Calculation ({expected_op})", total_artifact.summary)
-        # Convert to float for comparison to handle 2.5 vs 2.5
-        import re
-        match = re.search(r'(\d+\.?\d*)', total_artifact.summary.split(":")[-1])
+        # Updated output format: "Final ({op}): {res}"
+        self.assertIn(f"Final ({expected_op})", total_artifact.summary)
+        
+        # Extract number for comparison
+        match = re.search(r'([\d\.]+)', total_artifact.summary.split(":")[-1])
         self.assertEqual(float(match.group(1)), float(expected_value))
 
 if __name__ == "__main__":

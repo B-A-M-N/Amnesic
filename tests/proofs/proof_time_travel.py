@@ -28,7 +28,7 @@ def run_time_travel_proof():
     ))
 
     # Initialize Session
-    session = AmnesicSession(mission="Read calc.py and EXTRACT the code logic into an artifact.", l1_capacity=2000)
+    session = AmnesicSession(mission="Read calc.py and EXTRACT the code logic into an artifact.", l1_capacity=2000, deterministic_seed=42)
     config = {"configurable": {"thread_id": "proof_time_travel"}, "recursion_limit": 100}
     
     # Visual Confirmation

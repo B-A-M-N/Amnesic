@@ -15,16 +15,16 @@ class TestElasticModeUnit(unittest.TestCase):
         session.driver = MagicMock()
         
         # 1. Load a file
-        session.pager.request_access("FILE:hot.py", "content")
-        self.assertIn("FILE:hot.py", session.pager.active_pages)
+        session.pager.request_access("FILE:config_base.py", "BASE_VALUE = 100")
+        self.assertIn("FILE:config_base.py", session.pager.active_pages)
         
         # 2. Save an artifact
         with patch('amnesic.decision.worker.Worker.execute_task') as mock_worker:
-            mock_worker.return_value = MagicMock(content="val")
-            session._tool_worker_task("hot_artifact")
+            mock_worker.return_value = MagicMock(content="100")
+            session._tool_worker_task("BASE_VALUE")
             
         # 3. Verify file is STILL in L1
-        self.assertIn("FILE:hot.py", session.pager.active_pages)
+        self.assertIn("FILE:config_base.py", session.pager.active_pages)
 
     def test_strict_mode_auto_evicts(self):
         """Verify that default (Strict) mode DOES evict files after save_artifact."""

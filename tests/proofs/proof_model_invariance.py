@@ -9,6 +9,7 @@ from rich.text import Text
 # Ensure framework access
 sys.path.append(os.path.abspath(os.path.join(os.path.dirname(__file__), "../../")))
 from amnesic.core.session import AmnesicSession
+from tests.proofs.test_policies import PROOF_COMPLETION_POLICY, SAFETY_NET_POLICY
 
 def run_model_invariance_proof():
     console = Console()
@@ -60,10 +61,15 @@ def run_model_invariance_proof():
         console.print(header)
         console.print(Rule(style="dim"))
 
+        # Injecting Custom Policies for the Test Scenario
         session = AmnesicSession(
-            mission="Retrieve val_x from data_x.txt and val_y from data_y.txt. Sum them.",
+            mission = (
+                "MISSION: 1. Read data_x.txt and save val_x. 2. Read data_y.txt and save val_y. "
+                "3. Combine val_x and val_y into a 'TOTAL' sum result and HALT."
+            ),
             model=model_name,
-            l1_capacity=1000
+            l1_capacity=1000,
+            policies=[PROOF_COMPLETION_POLICY, SAFETY_NET_POLICY]
         )
         
         config = {"configurable": {"thread_id": f"invariance_{model_name.replace(':', '_')}"}, "recursion_limit": 100}

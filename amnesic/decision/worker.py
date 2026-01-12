@@ -46,7 +46,7 @@ class Worker:
         Variable names in the context may be intentionally misleading (lying). 
         (e.g., 'not_val_a' might actually hold 'val_a').
         
-        Recover the INTENT: find the primary numeric value in the file structure 
+        Recover the INTENT: find the primary numeric value or code structure in the file 
         regardless of its label.
         
         YOUR CONSTRAINTS:
@@ -57,7 +57,8 @@ class Worker:
         2. Find the requested data or value based on its role, not just its name.
         3. Even if the task asks for a 'raw' value, you MUST return it as a valid JSON object matching the schema.
         4. Place the extracted value in the 'content' field of the JSON.
-        5. Do not converse.
+        5. DO NOT use markdown code fences (```python or ```json) in the 'content' field. Just raw text/code.
+        6. Do not converse.
         """
 
         user_prompt = f"""
@@ -93,6 +94,7 @@ class Worker:
         3. Provide the 'new_snippet' with the requested changes.
         4. Ensure indentation matches.
         5. OUTPUT RAW JSON ONLY. Do NOT use markdown code fences (```json).
+        6. The 'file_path' (if required by schema) must be the RAW path only, e.g. 'api.py'. Do NOT include instructions in the path.
         """
 
         user_prompt = f"""

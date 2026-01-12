@@ -22,3 +22,13 @@ class RosettaSession(AmnesicSession):
         )
         full_mission = f"{mission}\n\n{rosetta_constraints}"
         super().__init__(mission=full_mission, **kwargs)
+        
+        from .code_agent import Artifact
+        self.state['framework_state'].artifacts.append(
+            Artifact(
+                identifier="EmployeeSchema",
+                type="config",
+                summary="@dataclass class Employee: name: str, hourly_rate: float, hours_worked: float",
+                status="verified_invariant"
+            )
+        )

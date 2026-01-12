@@ -5,7 +5,7 @@ def main():
     parser = argparse.ArgumentParser(description="Amnesic Framework: Kernel Scaffolding")
     parser.add_argument("mission", type=str, help="The goal/mission for the agent")
     parser.add_argument("--root", type=str, default="./", help="Root directory")
-    parser.add_argument("--model", type=str, default="qwen2.5-coder:3b", help="Model name")
+    parser.add_argument("--model", type=str, default="qwen2.5-coder:7b", help="Model name")
     parser.add_argument("--provider", type=str, default="ollama", help="LLM Provider (ollama, openai, anthropic, gemini, local)")
     parser.add_argument("--turns", type=int, default=15, help="Max turns")
     parser.add_argument("--hybrid", action="store_true", help="Enable Hybrid Search")

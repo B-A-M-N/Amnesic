@@ -46,6 +46,10 @@ class Pager:
         # 1. Update Clock
         if page_id in self.active_pages:
             self.active_pages[page_id].last_accessed = self.current_turn
+            # CRITICAL: Update content if provided (Cache Coherence)
+            if content is not None:
+                self.active_pages[page_id].content = content
+                self.active_pages[page_id].tokens = len(content) // 4
             return True
 
         # 2. Check Swap (L2)

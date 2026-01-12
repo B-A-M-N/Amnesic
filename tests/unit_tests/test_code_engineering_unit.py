@@ -31,9 +31,8 @@ class TestCodeEngineeringUnit(unittest.TestCase):
             # We can't easily check the write() args with simple mock_open if we don't handle the read/write calls carefully
             # but we can check if it was called.
             self.assertTrue(mock_file.called)
-            # Check if artifact was created
-            arts = self.session.state['framework_state'].artifacts
-            self.assertTrue(any(a.identifier == "diff_app.py" for a in arts))
+            # Verify feedback
+            self.assertIn("SUCCESS: Edited app.py", self.session.state['framework_state'].last_action_feedback)
 
     @patch('os.path.exists', return_value=True)
     @patch('builtins.open', new_callable=mock_open, read_data="mismatching content\n")
@@ -48,7 +47,7 @@ class TestCodeEngineeringUnit(unittest.TestCase):
             
             self.session._tool_edit("app.py: try edit")
             
-            self.assertIn("Edit Failed: Original snippet not found", self.session.state['framework_state'].last_action_feedback)
+            self.assertIn("Edit Failed: Snippet not found in file 'app.py'. Check logic.", self.session.state['framework_state'].last_action_feedback)
 
     @patch('os.path.exists', return_value=False)
     def test_tool_edit_file_not_found(self, mock_exists):

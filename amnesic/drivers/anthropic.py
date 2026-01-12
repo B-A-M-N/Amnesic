@@ -7,13 +7,14 @@ from .base import LLMDriver
 logger = logging.getLogger("amnesic.driver.anthropic")
 
 class AnthropicDriver(LLMDriver):
-    def __init__(self, api_key: str, model_name: str = "claude-3-5-sonnet-20240620"):
+    def __init__(self, api_key: str, model_name: str = "claude-3-5-sonnet-20240620", seed: Optional[int] = None):
         try:
             import anthropic
         except ImportError:
             raise ImportError("Anthropic driver requires 'anthropic' package. Please install it.")
         
         self.model_name = model_name
+        self.seed = seed
         self.client = anthropic.Anthropic(api_key=api_key)
 
     def embed(self, text: str) -> List[float]:

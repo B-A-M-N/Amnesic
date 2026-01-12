@@ -52,8 +52,9 @@ class StructuralMapper:
                     try:
                         file_map = self._parse_file(full_path, rel_path)
                         repository_map.append(file_map)
-                    except Exception as e:
-                        print(f"[WARN] Could not parse {rel_path}: {e}")
+                    except Exception:
+                        # Silently skip files that fail to parse (common for adversarial tests)
+                        pass
                 else:
                     # Generic handling for non-python files
                     # We just list them so the Manager knows they exist

@@ -21,6 +21,8 @@ class TestFrameworkIntegration(unittest.TestCase):
         mock_driver = MagicMock()
         session.driver = mock_driver
         session.manager_node.driver = mock_driver
+        # Ensure Auditor also uses the mock
+        session.auditor_node.driver = mock_driver
         
         # Mock Auditor to always PASS
         from amnesic.presets.code_agent import AuditorVerdict
@@ -28,13 +30,16 @@ class TestFrameworkIntegration(unittest.TestCase):
             outcome="PASS", risk_level="low", rationale="Mock pass"
         )
 
+        # STRICT AMNESIC SEQUENCE: Stage -> Save -> Unstage -> Stage -> Save -> Calculate -> Halt
         mock_driver.generate_structured_with_stream.side_effect = [
-            ManagerMove(thought_process="Staging island_a.txt to find X", tool_call="stage_context", target="island_a.txt"),
-            ManagerMove(thought_process="Extracting and saving val_x", tool_call="save_artifact", target="val_x"),
-            ManagerMove(thought_process="Staging island_b.txt to find Y", tool_call="stage_context", target="island_b.txt"),
-            ManagerMove(thought_process="Extracting and saving val_y", tool_call="save_artifact", target="val_y"),
-            ManagerMove(thought_process="Summing val_x and val_y artifacts", tool_call="verify_step", target="ADD val_x and val_y"),
-            ManagerMove(thought_process="Mission complete. Reporting final sum", tool_call="halt_and_ask", target="30")
+            ManagerMove(thought_process="Staging island_a.txt now.", tool_call="stage_context", target="island_a.txt"),
+            ManagerMove(thought_process="Saving val_x to artifacts.", tool_call="save_artifact", target="val_x"),
+            ManagerMove(thought_process="Unstaging island_a.txt now.", tool_call="unstage_context", target="island_a.txt"),
+            ManagerMove(thought_process="Staging island_b.txt now.", tool_call="stage_context", target="island_b.txt"),
+            ManagerMove(thought_process="Saving val_y to artifacts.", tool_call="save_artifact", target="val_y"),
+            ManagerMove(thought_process="Unstaging island_b.txt now.", tool_call="unstage_context", target="island_b.txt"),
+            ManagerMove(thought_process="Calculating the final sum.", tool_call="calculate", target="val_x + val_y"),
+            ManagerMove(thought_process="Mission complete. Reporting final sum.", tool_call="halt_and_ask", target="30")
         ]
 
         with patch('amnesic.decision.worker.Worker.execute_task') as mock_worker:
@@ -55,6 +60,7 @@ class TestFrameworkIntegration(unittest.TestCase):
         mock_driver = MagicMock()
         session.driver = mock_driver
         session.manager_node.driver = mock_driver
+        session.auditor_node.driver = mock_driver
 
         # Mock Auditor to always PASS
         from amnesic.presets.code_agent import AuditorVerdict

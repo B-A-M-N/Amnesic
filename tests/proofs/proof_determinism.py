@@ -22,10 +22,22 @@ def run_determinism_proof():
     ))
 
     # 1. Setup Fixed State
-    mission = "Calculate 123 * 456."
+    mission = "TASK: Read 'data_source.txt' and save its content as an artifact. This is the ONLY step."
+    with open("data_source.txt", "w") as f:
+        f.write("val_a = 123\nval_b = 456")
+    
+    # Mock environment structure
+    current_map = [{
+        "path": "data_source.txt",
+        "classes": [],
+        "functions": [],
+        "imports": []
+    }]
+    
     results = []
     
-    # 2. Telemetry Setup (Matching proof_gc.py standard)
+    # 2. Telemetry Setup
+    # ... (rest of telemetry remains same)
     COLS = [
         ("Run", "right", "cyan", 4),
         ("L1 Files", "center", "magenta", 12),
@@ -56,11 +68,11 @@ def run_determinism_proof():
     # 3. Execution Loop (5 Independent Runs)
     for i in range(5):
         # Re-init session to ensure clean slate, but with SAME config and SEED
-        session = AmnesicSession(mission=mission, l1_capacity=2000, deterministic_seed=42)
+        session = AmnesicSession(mission=mission, l1_capacity=2000, deterministic_seed=42, model="rnj-1:8b-cloud")
         
         # Force a single step of the Manager
         fw_state = session.state['framework_state']
-        current_map = [] 
+        # Use the map we defined in setup
         pager = session.pager
         
         move = session.manager_node.decide(

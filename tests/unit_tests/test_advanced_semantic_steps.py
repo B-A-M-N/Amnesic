@@ -14,26 +14,26 @@ class TestAdvancedSemanticSteps(unittest.TestCase):
         self.session.driver = MagicMock()
         self.session.manager_node.driver = self.session.driver
 
-    def test_protocol_logic_add(self):
-        """Verify _tool_verify_step handles ADD protocol correctly."""
+    def test_protocol_logic_subtract(self):
+        """Verify _tool_calculate handles SUBTRACT protocol correctly."""
         # Setup state
         self.session.state['framework_state'].artifacts = [
-            Artifact(identifier="PROTOCOL", type="text_content", summary="Must ADD them", status="verified_invariant"),
+            Artifact(identifier="PROTOCOL", type="text_content", summary="Must SUBTRACT them", status="verified_invariant"),
             Artifact(identifier="VAL_A", type="text_content", summary="10", status="verified_invariant"),
-            Artifact(identifier="VAL_B", type="text_content", summary="20", status="verified_invariant")
+            Artifact(identifier="VAL_B", type="text_content", summary="3", status="verified_invariant")
         ]
         
         # Execute
-        self.session._tool_verify_step("execute_logic")
+        self.session._tool_calculate("execute_logic")
         
         # Verify
         arts = self.session.state['framework_state'].artifacts
         total = next(a for a in arts if a.identifier == "TOTAL")
-        self.assertIn("30", total.summary)
-        self.assertIn("ADD", total.summary)
+        self.assertIn("7", total.summary)
+        self.assertIn("SUBTRACT", total.summary)
 
     def test_protocol_logic_multiply(self):
-        """Verify _tool_verify_step handles MULTIPLY protocol correctly."""
+        """Verify _tool_calculate handles MULTIPLY protocol correctly."""
         # Setup state
         self.session.state['framework_state'].artifacts = [
             Artifact(identifier="PROTOCOL", type="text_content", summary="Must MULTIPLY them", status="verified_invariant"),
@@ -42,7 +42,7 @@ class TestAdvancedSemanticSteps(unittest.TestCase):
         ]
         
         # Execute
-        self.session._tool_verify_step("execute_logic")
+        self.session._tool_calculate("execute_logic")
         
         # Verify
         arts = self.session.state['framework_state'].artifacts

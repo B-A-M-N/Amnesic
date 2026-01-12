@@ -28,7 +28,7 @@ class TestPersonaSwap(unittest.TestCase):
         
         # Check updated state
         self.assertEqual(self.session.state['framework_state'].strategy, "New Strategy")
-        self.assertIn("Strategy Switched", self.session.state['framework_state'].last_action_feedback)
+        self.assertIn("Strategy: New Strategy", self.session.state['framework_state'].last_action_feedback)
 
 if __name__ == "__main__":
     unittest.main()

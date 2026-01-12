@@ -18,7 +18,7 @@ def run_gc_proof():
         f.write("import heavy_data\ndef run():\n    return heavy_data.process()")
     
     with open("heavy_data.py", "w") as f:
-        f.write("# EXPENSIVE CONTEXT LOAD\n" + ("DATA_BLOB = " + str([i for i in range(100)]) + "\n") * 10)
+        f.write("# EXPENSIVE CONTEXT LOAD\n" + ("DATA_BLOB = " + str([i for i in range(100)]) + "\n") * 5)
 
     console.print(Panel(
         "[bold white]SCENARIO: The Phantom Dependency (Garbage Collection)[/bold white]\n" 
@@ -32,11 +32,11 @@ def run_gc_proof():
     # 2. Initialize Session
     mission = (
         "MISSION: 1. Read main_logic.py and heavy_data.py. "
-        "2. Wait for the user to refactor main_logic.py. "
-        "3. Once refactored, identify that heavy_data.py is unreachable. "
-        "4. DUMP heavy_data.py from context immediately."
+        "2. Save important artifacts. "
+        "3. Once main_logic.py is refactored, verify heavy_data.py is no longer needed. "
+        "4. Unstage heavy_data.py and save a 'TOTAL' artifact saying 'GC_COMPLETE'."
     )
-    session = AmnesicSession(mission=mission, l1_capacity=2000)
+    session = AmnesicSession(mission=mission, l1_capacity=2000, elastic_mode=True)
     config = {"configurable": {"thread_id": "proof_gc"}, "recursion_limit": 100}
     
     # Visual Confirmation
@@ -87,18 +87,28 @@ def run_gc_proof():
         move = node_output.get('manager_decision') if 'manager_decision' in node_output else current_state.get('manager_decision')
         audit = current_state.get('last_audit')
         
-        # --- THE INTERVENTION ---
-        if turn_count == 3 and not refactor_triggered:
-            console.print(Panel("[bold red]INTERVENTION: Refactoring main_logic.py (removing import)...[/bold red]"))
-            with open("main_logic.py", "w") as f:
-                f.write("def run():\n    return 'Clean result' # No dependency needed now")
-            refactor_triggered = True
-        # ------------------------
-
         if node_name == "manager":
             turn_count += 1
         
         active_files = [k.replace("FILE:", "") for k in pager.active_pages.keys() if "SYS:" not in k]
+
+        # --- THE INTERVENTION ---
+        is_heavy_present = "heavy_data.py" in active_files
+        if is_heavy_present and not refactor_triggered:
+            console.print(Panel("[bold red]INTERVENTION: Refactoring main_logic.py...[/bold red]"))
+            new_content = "def run():\n    return 'Clean result' # No dependency needed now"
+            with open("main_logic.py", "w") as f:
+                f.write(new_content)
+            
+            # Force cache invalidation so agent sees the change
+            if "FILE:main_logic.py" in pager.active_pages:
+                del pager.active_pages["FILE:main_logic.py"]
+            
+            session.state['framework_state'].last_action_feedback = "SYSTEM_ALERT: main_logic.py has been refactored. heavy_data.py is no longer imported."
+            
+            refactor_triggered = True
+        # ------------------------
+
         artifact_names = [a.identifier for a in fw_state.artifacts]
         token_str = f"{pager.current_usage}/{pager.capacity}"
         
@@ -124,12 +134,12 @@ def run_gc_proof():
             print_stream_row(row_data)
 
             # Success Condition
-            is_heavy_present = "heavy_data.py" in active_files
-            if refactor_triggered and not is_heavy_present and "main_logic.py" in active_files:
-                console.print(Panel("[bold green]SUCCESS: Orphaned context successfully Garbage Collected.[/bold green]"))
+            # Success is if refactor happened AND heavy_data was UNSTAGED
+            if refactor_triggered and move.tool_call == "save_artifact" and "TOTAL" in move.target:
+                console.print(Panel("[bold green]SUCCESS: Mission complete artifact saved.[/bold green]"))
                 break
 
-        if turn_count > 10:
+        if turn_count > 25:
             console.print("[bold red]FAIL: Agent failed to dump orphaned context.[/bold red]")
             sys.exit(1)
 

@@ -19,11 +19,19 @@ class TestDeterminismUnit(unittest.TestCase):
 
     @patch('amnesic.core.session.get_driver')
     def test_no_seed_uses_default_temperature(self, mock_get_driver):
-        """Verify that omitting seed doesn't force temperature to 0.0 (uses factory default)."""
+        """Verify that omitting seed uses default temperature (0.1)."""
         AmnesicSession(mission="Test")
         
         args, kwargs = mock_get_driver.call_args
-        self.assertIsNone(kwargs.get("temperature")) # Factory handles default
+        self.assertEqual(kwargs.get("temperature"), 0.1)
+
+    @patch('amnesic.core.session.get_driver')
+    def test_deterministic_seed_passes_seed_to_driver(self, mock_get_driver):
+        """Verify that deterministic_seed passes 'seed' to the driver factory."""
+        AmnesicSession(mission="Test", deterministic_seed=123)
+        
+        args, kwargs = mock_get_driver.call_args
+        self.assertEqual(kwargs.get("seed"), 123)
 
 if __name__ == "__main__":
     unittest.main()

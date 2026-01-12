@@ -8,7 +8,7 @@ from .base import LLMDriver
 logger = logging.getLogger("amnesic.driver.gemini")
 
 class GeminiDriver(LLMDriver):
-    def __init__(self, api_key: str, model_name: str = "gemini-1.5-pro-latest"):
+    def __init__(self, api_key: str, model_name: str = "gemini-1.5-pro-latest", seed: Optional[int] = None):
         try:
             import google.generativeai as genai
         except ImportError:
@@ -16,6 +16,7 @@ class GeminiDriver(LLMDriver):
         
         genai.configure(api_key=api_key)
         self.model = genai.GenerativeModel(model_name)
+        self.seed = seed
 
     def embed(self, text: str) -> List[float]:
         try:
@@ -47,7 +48,8 @@ class GeminiDriver(LLMDriver):
         
         generation_config = genai.GenerationConfig(
             response_mime_type="application/json",
-            response_schema=schema
+            response_schema=schema,
+            seed=self.seed
         )
 
         chat = self.model.start_chat(history=[

@@ -8,13 +8,13 @@ from rich.panel import Panel
 from rich.json import JSON
 
 # --- CONFIGURATION ---
-MODEL_NAME = "qwen2.5-coder:3b"  # Your 3B Model
+MODEL_NAME = "qwen2.5-coder:7b"  # Your 7B Model
 RERANK_MODEL = "BAAI/bge-reranker-base" # Or use a smaller fastembed supported model
 
 console = Console()
 
 # --- 1. THE SCHEMA (Constraint) ---
-# This forces the 3B model to think in strict JSON, preventing hallucinations.
+# This forces the 7B model to think in strict JSON, preventing hallucinations.
 class NextMove(BaseModel):
     thought_process: str = Field(..., description="Short reasoning for the decision.")
     action: Literal["retrieve_file", "write_code", "suspend_task"]

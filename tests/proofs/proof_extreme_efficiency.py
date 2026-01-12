@@ -34,11 +34,9 @@ def run_efficiency_proof():
 
     # 2. Initialize Session with l1_capacity=512
     mission = (
-        "MISSION: 1. Read api_config.json. Extract the 'version' and SAVE it as an ARTIFACT named 'TARGET_VERSION' immediately.\n"
-        "2. Once saved, unstage api_config.json.\n"
-        "3. Read deprecated_list.txt. Check if 'TARGET_VERSION' is listed as DEPRECATED.\n"
-        "4. If found, save artifact 'DEPRECATED_STATUS' as 'TRUE'.\n"
-        "5. Halt and report result."
+        "MISSION: 1. Read api_config.json to find TARGET_VERSION. 2. Read deprecated_list.txt. "
+        "3. Determine if TARGET_VERSION is in the deprecated list. "
+        "4. Save the result as 'TOTAL' (format: 'vX.X.X is [DEPRECATED/SUPPORTED]') and HALT."
     )
     
     # We must ensure the System Prompt itself is very lean, but for this proof 

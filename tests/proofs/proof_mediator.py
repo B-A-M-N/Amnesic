@@ -52,10 +52,13 @@ def calculate(a, b, op):
 
     console.print("[bold]1. Diverging Files Created[/bold]")
 
-    # 2. Initialize Session
+    # 3. Initialize Session
     mission = (
-        "MISSION: Resolve the conflict between 'main_v1.py' (has bug fix) and 'feat_v1.py' (has new feature). "
-        "Create a 'resolved.py' that includes BOTH the 'b==0' check AND the 'mul' operation."
+        "MISSION: Resolve the merge conflict between 'main_v1.py' and 'feat_v1.py'.\n"
+        "1. Use 'compare_files' on 'main_v1.py' and 'feat_v1.py' to generate a merged result.\n"
+        "2. An artifact named 'RESOLVED_CODE' will be created automatically.\n"
+        "3. Use 'write_file' to save the content of 'RESOLVED_CODE' into a new file named 'resolved.py'.\n"
+        "4. Halt once 'resolved.py' is created."
     )
     
     session = MediatorSession(mission=mission, l1_capacity=2000)
@@ -94,8 +97,8 @@ def calculate(a, b, op):
                 resolution_found = True
                 break
                 
-        if step_count > 12:
-            console.print("[red]Timeout: Agent failed to resolve.[/red]")
+        if step_count > 20:
+            console.print("Timeout: Agent failed to resolve.")
             break
 
     # 4. Audit
@@ -111,6 +114,15 @@ def calculate(a, b, op):
              console.print("[bold green]✔ PASS: Comparator Files Evicted.[/bold green]")
         else:
              console.print("[bold red]✖ FAIL: Context Pollution (Files remain in L1).[/bold red]")
+             
+        # Content Check
+        with open("resolved.py") as f: content = f.read()
+        has_fix = "b == 0" in content
+        has_feat = "a * b" in content or "mul" in content
+        if has_fix and has_feat:
+            console.print("[bold green]✔ PASS: Resolution produced both Fix and Feature.[/bold green]")
+        else:
+            console.print(f"[bold red]✖ FAIL: Resolution incomplete.[/bold red] (Fix: {has_fix}, Feat: {has_feat})")
     else:
         console.print("[bold red]✖ FAIL: No resolution produced.[/bold red]")
 

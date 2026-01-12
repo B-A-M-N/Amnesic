@@ -46,7 +46,7 @@ def run_advanced_proof():
         "MISSION: \n"
         "1. Analyze 'logic_gate.txt' to discover the mathematical PROTOCOL (e.g., Add, Multiply) and save it.\n"
         "2. Retrieve the hidden values from 'vault_a.txt' and 'vault_b.txt' and save them.\n"
-        "3. Once you have the PROTOCOL and both VALUES, execute the logic using 'verify_step'."
+        "3. Once you have the PROTOCOL and both VALUES, execute the logic using 'calculate'."
     )
     
     intent_strategy = (

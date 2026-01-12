@@ -62,9 +62,12 @@ def calculate_net_pay(employee: Employee) -> float:
     # 3. Initialize Session
     mission = (
         "MISSION: Migrate 'legacy_payroll.py' to Modern Python. "
-        "Use the 'EmployeeSchema' artifact as the template. "
-        "The logic is: Net = Gross - (Gross * 0.20). "
-        "Return the cleaned code as an Artifact named 'modern_payroll.py'."
+        "1. Use the EXACT 'Employee' dataclass from 'EmployeeSchema' (identifier, type, summary). "
+        "2. Implement 'calculate_net_pay(employee: Employee) -> float'. "
+        "3. Logic: Net = Gross - (Gross * 0.20). "
+        "4. MANDATORY: Use snake_case only. Do NOT preserve camelCase from legacy. "
+        "5. SAVE the cleaned code as an ARTIFACT named 'modern_payroll.py'. "
+        "6. Finally, save a 'TOTAL' artifact saying 'MIGRATION_COMPLETE' and halt."
     )
     
     session = RosettaSession(mission=mission, l1_capacity=2000)
@@ -73,30 +76,35 @@ def calculate_net_pay(employee: Employee) -> float:
     console.print("\n[bold]2. Engaging Rosetta Agent...[/bold]")
     config = {"configurable": {"thread_id": "rosetta_proof"}, "recursion_limit": 100}
     
-    step_count = 0
+    turn_count = 0
     success = False
+    result = None
     
     for event in session.app.stream(session.state, config=config):
-        step_count += 1
+        node_name = list(event.keys())[0]
+        if node_name == "manager":
+            turn_count += 1
+            
         current_state = session.app.get_state(config).values
         if not current_state: current_state = session.state
         
         fw = current_state['framework_state']
         
-        # Check for Result Artifact
-        # We look for the specific output name
-        new_arts = [a for a in fw.artifacts if a.identifier == "modern_payroll.py"]
+        # Robust Artifact Detection
+        found_modern = next((a for a in fw.artifacts if a.identifier == "modern_payroll.py"), None)
+        has_total = any(a.identifier == "TOTAL" for a in fw.artifacts)
         
-        if new_arts:
-            result = new_arts[0]
-            console.print(f"[Turn {step_count}] Migration Complete: [green]{result.identifier}[/green]")
-            console.print(Panel(Syntax(result.summary, "python", theme="monokai"), title="Migrated Code"))
-            success = True
-            break
+        # Validation: Does it look like modern code?
+        if found_modern and has_total:
+            code = found_modern.summary
+            is_valid = "@dataclass" in code or "Employee" in code or "calculate_net_pay" in code
             
-        if step_count > 12:
-            console.print("[red]Timeout: Agent failed to migrate.[/red]")
-            break
+            if is_valid:
+                result = found_modern
+                console.print(f"[Turn {turn_count}] Migration Complete: [green]{result.identifier}[/green]")
+                console.print(Panel(Syntax(result.summary, "python", theme="monokai"), title="Migrated Code"))
+                success = True
+                break
 
     # 5. Verify Hygiene & Correctness
     console.print("\n[bold]3. Quality Audit[/bold]")

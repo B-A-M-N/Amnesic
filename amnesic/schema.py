@@ -2,7 +2,7 @@ from typing import Literal, Optional, List
 from pydantic import BaseModel, Field
 
 # --- THE SCHEMA (Constraint) ---
-# This forces the 3B model to think in strict JSON, preventing hallucinations.
+# This forces the 7B model to think in strict JSON, preventing hallucinations.
 class NextMove(BaseModel):
     rationale: str = Field(..., description="Short reasoning for the decision.")
     tool_call: Literal["stage_context", "unstage_context", "save_artifact", "edit_file", "halt_and_ask", "verify_step"]

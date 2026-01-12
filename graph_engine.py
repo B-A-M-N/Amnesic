@@ -66,10 +66,10 @@ def node_memory(state: AgentState):
 def node_manager(state: AgentState):
     """
     [BRAIN LAYER]
-    Uses Ollama (Qwen-3B) to decide the next action.
+    Uses Ollama (Qwen-7B) to decide the next action.
     """
     print("\n--- [MANAGER] Deliberating ---")
-    llm = ChatOllama(model="qwen2.5-coder:3b", temperature=0.1, format="json")
+    llm = ChatOllama(model="qwen2.5-coder:7b", temperature=0.1, format="json")
     
     file_list = "\n".join([f"- {f}" for f in state['active_files']])
     
@@ -130,7 +130,7 @@ def node_staging(state: AgentState):
     if os.path.exists(full_path):
         with open(full_path, 'r') as f:
             content = f.read()
-        return {"current_context": f"FILE: {target}\nCONTENT:\n{content[:2000]}..."} # Truncate for 3B model
+        return {"current_context": f"FILE: {target}\nCONTENT:\n{content[:2000]}..."} # Truncate for 7B model
     else:
         return {"current_context": f"ERROR: File {target} not found."}
 

@@ -7,7 +7,7 @@ with open("target_dummy.txt", "w") as f:
 
 # 2. Setup the "Bolt-On" experience
 session = AmnesicSession(
-    model="qwen2.5-coder:3b",
+    model="qwen2.5-coder:7b",
     backend="ollama",
     system_prompt="You are a security auditor. Analyze the target file."
 )

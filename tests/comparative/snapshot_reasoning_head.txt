@@ -1,0 +1,7 @@
+"""
+Comparative Proof: Snapshot Reasoning vs. Implicit Memory Poisoning
+Proves that standard agents cannot "unsee" or "forget" poisoned data once it 
+enters their history, whereas Amnesic can revert to a clean state.
+"""
+import os
+import sys

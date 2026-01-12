@@ -24,7 +24,14 @@ def run_ignorance_proof():
         title="Capability 9: Better Questions", border_style="white"
     ))
 
-    session = AmnesicSession(mission="Map the call graph of service.py. If a dependency is missing, STOP and ask for it.", l1_capacity=2000)
+    # 2. Initialize Session
+    mission = (
+        "MISSION: Read 'service.py' and list its imports. "
+        "For each import, check if the file exists. "
+        "If a file is missing, you MUST halt and explicitly state: 'MISSING_SOURCE: <filename>'. "
+        "Do NOT guess the content of missing files."
+    )
+    session = AmnesicSession(mission=mission, l1_capacity=2000)
     config = {"configurable": {"thread_id": "proof_ignorance"}, "recursion_limit": 100}
     
     # Visual Confirmation
@@ -114,7 +121,7 @@ def run_ignorance_proof():
                 console.print(Panel("[bold red]FAIL: Agent hallucinated completion without the missing file.[/bold red]"))
                 break
         
-        if len(session.state['framework_state'].decision_history) > 8:
+        if len(session.state['framework_state'].decision_history) > 15:
              console.print("[bold red]Timeout reached.[/bold red]")
              break
 

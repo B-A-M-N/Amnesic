@@ -22,7 +22,7 @@ class TestContractsUnit(unittest.TestCase):
         arts = self.session.state['framework_state'].artifacts
         verif = next(a for a in arts if a.identifier == "VERIFICATION")
         self.assertIn("PASSED", verif.summary)
-        self.assertIn("'signed' found", verif.summary)
+        self.assertIn("'signed' verified", verif.summary)
 
     def test_verify_step_semantic_fail(self):
         """Verify _tool_verify_step reports missing text."""

@@ -40,8 +40,9 @@ def run_cognitive_load_proof():
     # 2. Initialize Session
     # Capacity is small (1000 tokens). 
     mission = (
-        "MISSION: Find the function 'calculate_tax' and fix the tax rate to 0.05. "
-        "Ignore irrelevant files."
+        "MISSION: Find the file 'critical_logic.py' and EDIT the 'calculate_tax' function to fix the tax rate from 0.5 to 0.05. "
+        "Once done, save a 'TOTAL' artifact saying 'FIX_COMPLETE'. "
+        "Ignore distractor files."
     )
     session = AmnesicSession(mission=mission, l1_capacity=1000)
     config = {"configurable": {"thread_id": "proof_cognitive_load"}, "recursion_limit": 100}

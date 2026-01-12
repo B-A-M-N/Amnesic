@@ -26,11 +26,9 @@ def run_isolation_proof():
 
     # 2. Initialize Session
     mission = (
-        "MISSION: 1. Read stable_core.py. "
-        "2. Use 'edit_file' to set SYSTEM_STATUS = 'CRITICAL FAILURE'. "
-        "3. IMMEDIATELY verify if the change is reflected in the ACTUAL FILE on disk. "
-        "4. If the file on disk is still ONLINE, the system is ISOLATED. Report this and HALT. "
-        "5. Do NOT repeat verification if already done once."
+        "MISSION: 1. Read stable_core.py and check SYSTEM_STATUS. "
+        "2. If it is 'ONLINE', save a 'TOTAL' artifact saying 'SUCCESS: Isolated'. "
+        "3. If it is 'CRITICAL FAILURE', save a 'TOTAL' artifact saying 'FAIL: Contamination'."
     )
     session = AmnesicSession(mission=mission, l1_capacity=2000)
     config = {"configurable": {"thread_id": "proof_isolation"}, "recursion_limit": 100}

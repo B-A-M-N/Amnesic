@@ -30,7 +30,7 @@ class Manager:
 
         # 3. Construct Prompt
         # We perform a string dump of the file_map for the model to see structure
-        # In a real app, this might be too large, but for 3B constraints, we assume small repos.
+        # In a real app, this might be too large, but for 7B constraints, we assume small repos.
         map_str = json.dumps(file_map, indent=2)
 
         prompt = f"""
@@ -71,7 +71,7 @@ class Manager:
         # but main.py passed `driver` which is OllamaDriver.
         # Let's check OllamaDriver signature in drivers/ollama.py if possible, 
         # or stick to direct ollama call if the driver wrapper is thin.
-        # main.py does: driver = OllamaDriver(model_name="qwen2.5-coder:3b")
+        # main.py does: driver = OllamaDriver(model_name="qwen2.5-coder:7b")
         # Let's assume we use the driver method if possible, but the previous code used ollama.chat directly.
         # To be safe and consistent with main.py which initializes Manager(driver), we use self.driver.
         

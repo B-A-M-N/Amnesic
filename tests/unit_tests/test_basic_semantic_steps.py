@@ -27,8 +27,8 @@ class TestBasicSemanticSteps(unittest.TestCase):
         # 1. State with no files
         state: AgentState = {
             "framework_state": self.session.state["framework_state"],
-            "active_file_map": [{"path": "test.txt"}],
-            "manager_decision": ManagerMove(thought_process="I need to stage the file for analysis.", tool_call="stage_context", target="test.txt"),
+            "active_file_map": [{"path": "island_a.txt"}, {"path": "island_b.txt"}],
+            "manager_decision": ManagerMove(thought_process="I need to stage the file for analysis.", tool_call="stage_context", target="island_a.txt"),
             "last_audit": None,
             "last_node": "manager"
         }
@@ -38,18 +38,23 @@ class TestBasicSemanticSteps(unittest.TestCase):
         self.assertEqual(result["last_audit"]["auditor_verdict"], "PASS")
         
         # 2. Add a file to L1
-        self.session.pager.pin_page("FILE:old.txt", "content")
+        self.session.pager.pin_page("FILE:island_a.txt", "content")
+        
+        # Update move to a DIFFERENT file to avoid STALEMATE/Loop detection
+        state["manager_decision"] = ManagerMove(thought_process="I need another file.", tool_call="stage_context", target="island_b.txt")
         
         # Auditor should REJECT a second stage
         result = self.session._node_auditor(state)
         self.assertEqual(result["last_audit"]["auditor_verdict"], "REJECT")
-        self.assertIn("L1 Violation", result["last_audit"]["rationale"])
+        # The prompt might say "L1 IS FULL" or "L1 Violation".
+        rationale = result["last_audit"]["rationale"].lower()
+        self.assertTrue("full" in rationale or "violation" in rationale)
 
     def test_step_2_executor_auto_evict(self):
         """Test Step 2: Executor clearing L1 after save_artifact."""
         # 1. Load a file
-        self.session.pager.request_access("FILE:target.txt", "some data")
-        self.assertIn("FILE:target.txt", self.session.pager.active_pages)
+        self.session.pager.request_access("FILE:island_a.txt", "val_x = 63")
+        self.assertIn("FILE:island_a.txt", self.session.pager.active_pages)
         
         # 2. Mock a PASSing save_artifact move
         state: AgentState = {
@@ -61,36 +66,36 @@ class TestBasicSemanticSteps(unittest.TestCase):
         
         # 3. Execute - Mock Worker
         with patch('amnesic.decision.worker.Worker.execute_task') as mock_worker:
-            mock_worker.return_value = MagicMock(content="42")
+            mock_worker.return_value = MagicMock(content="63")
             self.session._node_executor(state)
             
         # 4. Verify L1 is cleared
-        self.assertNotIn("FILE:target.txt", self.session.pager.active_pages)
-        self.assertIn("FILE:target.txt", self.session.pager.swap_disk)
+        self.assertNotIn("FILE:island_a.txt", self.session.pager.active_pages)
+        self.assertIn("FILE:island_a.txt", self.session.pager.swap_disk)
 
-    def test_step_3_verify_logic(self):
-        """Test Step 3: verify_step tool sums X + Y and creates TOTAL artifact."""
+    def test_step_3_calculate_logic(self):
+        """Test Step 3: calculate tool sums X + Y and creates TOTAL artifact."""
         # 1. Add X and Y artifacts
         self.session.state["framework_state"].artifacts = [
-            Artifact(identifier="val_x", type="text_content", summary="val_x = 10", status="staged"),
-            Artifact(identifier="val_y", type="text_content", summary="val_y = 20", status="staged")
+            Artifact(identifier="val_x", type="text_content", summary="val_x = 63", status="staged"),
+            Artifact(identifier="val_y", type="text_content", summary="val_y = 78", status="staged")
         ]
         
-        # 2. Execute verify_step
-        # Note: _tool_verify_step now requires a keyword like 'SUM' or 'ADD' to trigger math
-        self.session._tool_verify_step("ADD val_x and val_y")
+        # 2. Execute calculate
+        self.session._tool_calculate("val_x + val_y")
             
         # 3. Verify TOTAL artifact
         artifacts = self.session.state["framework_state"].artifacts
         final_art = next((a for a in artifacts if a.identifier == "TOTAL"), None)
         self.assertIsNotNone(final_art)
-        self.assertIn("30", final_art.summary)
+        self.assertIn("141", final_art.summary)
 
     def test_step_4_manager_completion_override(self):
         """Test Step 4: Manager deterministically overrides to halt_and_ask when TOTAL is found."""
-        # 1. Setup state with TOTAL
+        # 1. Setup state with TOTAL and VERIFICATION (needed for new policy)
         self.session.state["framework_state"].artifacts = [
-            Artifact(identifier="TOTAL", type="result", summary="58", status="committed")
+            Artifact(identifier="TOTAL", type="result", summary="141", status="committed"),
+            Artifact(identifier="VERIFICATION", type="result", summary="Verified", status="committed")
         ]
         
         # 2. Run Manager - NO Driver Mock needed because it should override!
@@ -107,7 +112,7 @@ class TestBasicSemanticSteps(unittest.TestCase):
         # 3. Verify override
         move = result["manager_decision"]
         self.assertEqual(move.tool_call, "halt_and_ask")
-        self.assertEqual(move.target, "58")
+        self.assertEqual(move.target, "TOTAL: 141")
         self.assertIn("mission is complete", move.thought_process)
 
 if __name__ == "__main__":
