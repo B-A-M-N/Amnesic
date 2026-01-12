@@ -93,6 +93,12 @@ Amnesic manages context using a hierarchical memory model:
 *   **Artifacts (L2):** Authoritative symbolic state (facts, contracts, decisions). This is the ground truth.
 *   **Vectors (L3):** Heuristic retrieval aids. Used only to find information, never as reasoning truth.
 
+---
+
+### Conceptual Roots
+Amnesic follows the same conceptual principle as the [**Git Context Controller (arXiv:2508.00031)**](https://arxiv.org/abs/2508.00031): enforce strict, structured context management for LLM agents to prevent drift and maintain recoverable state.
+ The difference lies in implementation—Amnesic uses AST-guided artifact extraction and hierarchical memory offloading, whereas Git Context Controller uses Git-like commit/versioning operations.
+
 ### What Amnesic is NOT
 Amnesic is a **memory discipline**, not a magic wand.
 *   It does **not** improve the base intelligence of the model.
