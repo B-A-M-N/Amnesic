@@ -297,7 +297,7 @@ class OllamaDriver:
     def _try_parse_schema(self, candidate: str, schema: Type[BaseModel]) -> Optional[BaseModel]:
         """Helper to try parsing a string with a schema, including healing."""
         # 0. Pre-cleaning: remove "Thought: " or similar prefixes if they leaked into the candidate
-        candidate = re.sub(r'^(?i)thought:\s*', '', candidate.strip())
+        candidate = re.sub(r'(?i)^thought:\s*', '', candidate.strip())
         
         # Sub-attempt 1: Clean parse
         try:
