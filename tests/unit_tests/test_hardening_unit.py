@@ -54,7 +54,7 @@ class TestHardeningUnit(unittest.TestCase):
         }
         
         # This call should return immediately with REJECT due to Layer 0
-        result = self.session._node_auditor(state)
+        result = self.session.graph._node_auditor(state)
         
         self.assertEqual(result['last_audit']['auditor_verdict'], "REJECT")
         self.assertIn("Path Traversal Blocked", result['last_audit']['rationale'])

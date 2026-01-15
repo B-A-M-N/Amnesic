@@ -45,7 +45,7 @@ def run_contract_proof():
         "DO NOT use verify_step for comparing artifacts."
     )
     
-    session = AmnesicSession(mission=mission, l1_capacity=2000, strategy=contract_strategy)
+    session = AmnesicSession(mission=mission, l1_capacity=3000, strategy=contract_strategy)
     config = {"configurable": {"thread_id": "proof_contracts"}, "recursion_limit": 100}
     
     # Visual Confirmation

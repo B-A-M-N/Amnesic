@@ -11,7 +11,7 @@ from amnesic.presets.code_agent import FrameworkState, Artifact, ManagerMove
 class TestBasicSemanticSteps(unittest.TestCase):
     def setUp(self):
         # Initialize session with minimal capacity
-        self.session = AmnesicSession(mission="Test Mission", l1_capacity=1500)
+        self.session = AmnesicSession(mission="Test Mission", l1_capacity=3000)
         
         # Mock Driver
         self.mock_driver = MagicMock()
@@ -34,7 +34,7 @@ class TestBasicSemanticSteps(unittest.TestCase):
         }
         
         # Auditor should PASS
-        result = self.session._node_auditor(state)
+        result = self.session.graph._node_auditor(state)
         self.assertEqual(result["last_audit"]["auditor_verdict"], "PASS")
         
         # 2. Add a file to L1
@@ -44,7 +44,7 @@ class TestBasicSemanticSteps(unittest.TestCase):
         state["manager_decision"] = ManagerMove(thought_process="I need another file.", tool_call="stage_context", target="island_b.txt")
         
         # Auditor should REJECT a second stage
-        result = self.session._node_auditor(state)
+        result = self.session.graph._node_auditor(state)
         self.assertEqual(result["last_audit"]["auditor_verdict"], "REJECT")
         # The prompt might say "L1 IS FULL" or "L1 Violation".
         rationale = result["last_audit"]["rationale"].lower()
@@ -67,7 +67,7 @@ class TestBasicSemanticSteps(unittest.TestCase):
         # 3. Execute - Mock Worker
         with patch('amnesic.decision.worker.Worker.execute_task') as mock_worker:
             mock_worker.return_value = MagicMock(content="63")
-            self.session._node_executor(state)
+            self.session.graph._node_executor(state)
             
         # 4. Verify L1 is cleared
         self.assertNotIn("FILE:island_a.txt", self.session.pager.active_pages)
@@ -107,7 +107,7 @@ class TestBasicSemanticSteps(unittest.TestCase):
             "last_node": None
         }
         
-        result = self.session._node_manager(state)
+        result = self.session.graph._node_manager(state)
         
         # 3. Verify override
         move = result["manager_decision"]

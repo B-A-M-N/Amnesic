@@ -140,8 +140,13 @@ class DynamicPager:
         logger.info(f"Prefetched {page_id} to L2.")
 
     def evict_to_l2(self, page_id: str):
-        """Explicitly moves a page from L1 to L2."""
+        """Explicitly moves a page from L1 to L2. Cannot evict pinned pages."""
         if page_id in self.l1_active:
+            page = self.l1_active[page_id]
+            if page.pinned:
+                logger.warning(f"Eviction Blocked: {page_id} is PINNED.")
+                return
+            
             page = self.l1_active.pop(page_id)
             self.l2_staging[page_id] = page
             logger.info(f"Evicted {page_id} to L2.")

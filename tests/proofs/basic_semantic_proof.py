@@ -12,6 +12,8 @@ from rich.rule import Rule
 sys.path.append(os.path.abspath(os.path.join(os.path.dirname(__file__), "../../")))
 from amnesic.core.session import AmnesicSession
 
+noise = "NOISE_BUFFER " * 400
+
 def run_proof():
     console = Console()
     
@@ -20,9 +22,9 @@ def run_proof():
     val_y = random.randint(10, 99)
     
     with open("island_a.txt", "w") as f:
-        f.write(f"val_x = {val_x}\n" + "DATA_FRAGMENT_ALPHA " * 200)
+        f.write(noise + f"val_x = {val_x}\n" + "DATA_FRAGMENT_ALPHA " * 200)
     with open("island_b.txt", "w") as f:
-        f.write(f"val_y = {val_y}\n" + "DATA_FRAGMENT_BETA " * 200)
+        f.write(noise + f"val_y = {val_y}\n" + "DATA_FRAGMENT_BETA " * 200)
     
     console.print(Panel(
         f"[bold white]SCENARIO: The Island Hop (Basic Semantic Retrieval)[/bold white]\n"
@@ -37,7 +39,7 @@ def run_proof():
 
     # 2. Initialize Session
     mission = "MISSION: Retrieve 'val_x' from island_a.txt and 'val_y' from island_b.txt. Calculate their sum. IMPORTANT: Save each value as an artifact immediately."
-    session = AmnesicSession(mission=mission, l1_capacity=1500)
+    session = AmnesicSession(mission=mission, l1_capacity=3000)
     
     # Visual Confirmation of Architecture
     session.visualize()

@@ -32,7 +32,7 @@ class TestIgnoranceUnit(unittest.TestCase):
         }
         
         # Run node auditor
-        result = self.session._node_auditor(state)
+        result = self.session.graph._node_auditor(state)
         
         # Verify REJECT (Auditor now checks if file exists via substrate)
         self.assertEqual(result['last_audit']['auditor_verdict'], "REJECT")

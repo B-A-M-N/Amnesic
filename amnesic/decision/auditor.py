@@ -38,11 +38,20 @@ class Auditor:
         clean_val = value.strip().strip("'" ).strip('"')
         return clean_val.lower() in context.lower()
 
-    def evaluate_move(self, action_type: str, target: str, manager_rationale: str, valid_files: Optional[List[str]] = None, active_pages: Optional[List[str]] = None, decision_history: List[dict] = [], current_artifacts: List[Any] = [], active_context: str = "") -> dict:
+    def evaluate_move(self, action_type: str, target: str, manager_rationale: str, valid_files: Optional[List[str]] = None, active_pages: Optional[List[str]] = None, decision_history: List[dict] = [], current_artifacts: List[Any] = [], active_context: str = "", forbidden_tools: List[str] = []) -> dict:
         """
         The Amnesic Policy Engine: Strictly enforces State and Safety.
         """
         
+        # --- LAYER -5: TOOL ENFORCEMENT ---
+        if action_type in forbidden_tools:
+             return {
+                 "auditor_verdict": "REJECT",
+                 "confidence_score": 1.0,
+                 "rationale": f"FATAL: The tool '{action_type}' is DISABLED in this mode. You must reason using ONLY your saved artifacts.",
+                 "correction": "Use your existing knowledge from the Backpack to answer the user query."
+             }
+
         # --- LAYER -4: SEMANTIC HYGIENE ---
         if action_type == "save_artifact":
              # Reject if target contains whitespace or looks like prose
@@ -85,29 +94,20 @@ class Auditor:
 
         # --- LAYER -2.5: HALT VALIDATION ---
         if action_type == "halt_and_ask":
-            # 1. Artifact Count/Named Check
-            # Check for numeric count (e.g. "10 parts")
-            # Improved regex to handle various wordings
-            count_match = re.search(r'(\d+)[\s-]*(?:word|part|file|artifact|step)', self.goal.lower())
+            # 1. Strict Artifact Count Check
+            # Look for requirements like "10 parts" or "10-word sentence"
+            count_match = re.search(r"(\d+)\s*(-word|\s*parts|\s*artifacts|\s*files)", self.goal.lower())
             if count_match:
                 required_count = int(count_match.group(1))
-                
-                # Filter current_artifacts to only count those that seem relevant to the mission
-                # (e.g. if the mission mentions PART_N, only count those)
-                relevant_arts = current_artifacts
-                if "PART_" in self.goal:
-                    relevant_arts = [a for a in current_artifacts if "PART_" in str(a.identifier).upper()]
-                
-                if len(relevant_arts) < required_count:
+                if len(current_artifacts) < required_count:
                     return {
                         "auditor_verdict": "REJECT",
                         "confidence_score": 1.0,
-                        "rationale": f"PREMATURE HALT: You claimed the mission is complete, but you only have {len(relevant_arts)}/{required_count} required parts saved as artifacts. You MUST save the data from the current file BEFORE halting.",
-                        "correction": f"Save the data from your current Active Context as an artifact (e.g. PART_{len(relevant_arts)})."
+                        "rationale": f"PREMATURE HALT: The mission explicitly requires {required_count} parts, but you only have {len(current_artifacts)} saved. You MUST collect all parts before halting.",
+                        "correction": "Continue extracting and saving artifacts until you have all required parts."
                     }
-            
-            # Check for named artifacts explicitly mentioned in MISSION
-            # e.g. "Save ... as an Artifact named 'modern_payroll.py'"
+
+            # 2. Named Artifact Check
             named_art_matches = re.findall(r"artifact named ['\"]([^'\"]+)['\"]", self.goal.lower())
             for named_art in named_art_matches:
                 if not any(a.identifier.lower() == named_art.lower() for a in current_artifacts):
@@ -117,6 +117,16 @@ class Auditor:
                         "rationale": f"PREMATURE HALT: Missing required artifact '{named_art}' explicitly requested in mission.",
                         "correction": f"Save your result as '{named_art}' before halting."
                     }
+            
+            # 1.5. Extraction Check (Hive Mind fix)
+            if any(kw in self.goal.lower() for kw in ["extract", "save", "retrieve", "find"]):
+                 if not current_artifacts:
+                      return {
+                          "auditor_verdict": "REJECT",
+                          "confidence_score": 1.0,
+                          "rationale": "PREMATURE HALT: You were asked to extract/save data, but your Backpack is EMPTY. You must use 'save_artifact' before halting.",
+                          "correction": "Use 'save_artifact' to store the data you found."
+                      }
             
             # 2. Reality Check (Numerical consistency)
             full_truth = active_context + " " + " ".join([f"{a.identifier}: {a.summary}" for a in current_artifacts])
@@ -185,7 +195,11 @@ class Auditor:
         # --- LAYER 1.5: ANTI-HALLUCINATION ---
         if action_type in ["save_artifact", "edit_file"]:
             user_files = [p for p in (active_pages or []) if "SYS:" not in p]
-            if not user_files and not (action_type == "save_artifact" and not valid_files):
+            
+            # Exception: Allow saving completion/summary artifacts even if L1 is empty
+            is_completion_artifact = action_type == "save_artifact" and any(k in target.upper() for k in ["TOTAL", "COMPLETE", "SUCCESS", "MIGRATION", "RESULT"])
+            
+            if not user_files and not (action_type == "save_artifact" and not valid_files) and not is_completion_artifact:
                 return {
                     "auditor_verdict": "REJECT",
                     "confidence_score": 1.0,
@@ -281,7 +295,7 @@ class Auditor:
 
         # --- LAYER 3: LLM JUDGE ---
         try:
-            verdict = self._run_llm_audit(action_type, target, manager_rationale, relevance_score, active_pages)
+            verdict = self._run_llm_audit(action_type, target, manager_rationale, relevance_score, active_pages, current_artifacts)
             return {
                 "auditor_verdict": verdict.outcome,
                 "confidence_score": 0.9 if verdict.outcome == "PASS" else 0.5,
@@ -318,14 +332,15 @@ class Auditor:
         action_vector = list(self.embedder.embed([action_text]))[0]
         return float(np.dot(self.goal_vector, action_vector))
 
-    def _run_llm_audit(self, action: str, target: str, rationale: str, rel_score: float, active_pages: Optional[List[str]]) -> AuditorVerdict:
+    def _run_llm_audit(self, action: str, target: str, rationale: str, rel_score: float, active_pages: Optional[List[str]], artifacts: List[Any] = []) -> AuditorVerdict:
         system_prompt = AUDITOR_SYSTEM_PROMPT.format(goal=self.goal, constraints=self.constraints)
         loaded_files = ", ".join(active_pages) if active_pages else "None"
+        arts_str = "\n".join([f"- {a.identifier}: {a.summary}" for a in artifacts]) if artifacts else "None"
         
         # Truncate target to prevent distraction by large code blocks
         display_target = target[:500] + "... [TRUNCATED]" if len(target) > 500 else target
         
-        user_prompt = f"L1: {loaded_files}\nAction: {action}\nTarget: {display_target}\nRationale: {rationale}\nVerdict?"
+        user_prompt = f"L1 (Active Context): {loaded_files}\nBACKPACK (Saved Artifacts):\n{arts_str}\n\nAction: {action}\nTarget: {display_target}\nRationale: {rationale}\nVerdict?"
         return self.driver.generate_structured(user_prompt=user_prompt, schema=AuditorVerdict, system_prompt=system_prompt)
 
 # --- LangGraph Node Wrapper ---

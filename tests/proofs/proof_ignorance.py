@@ -31,7 +31,7 @@ def run_ignorance_proof():
         "If a file is missing, you MUST halt and explicitly state: 'MISSING_SOURCE: <filename>'. "
         "Do NOT guess the content of missing files."
     )
-    session = AmnesicSession(mission=mission, l1_capacity=2000)
+    session = AmnesicSession(mission=mission, l1_capacity=3000)
     config = {"configurable": {"thread_id": "proof_ignorance"}, "recursion_limit": 100}
     
     # Visual Confirmation

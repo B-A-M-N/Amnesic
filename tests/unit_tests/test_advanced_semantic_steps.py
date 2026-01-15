@@ -10,7 +10,7 @@ from amnesic.presets.code_agent import FrameworkState, Artifact
 
 class TestAdvancedSemanticSteps(unittest.TestCase):
     def setUp(self):
-        self.session = AmnesicSession(mission="Advanced Test", l1_capacity=1500)
+        self.session = AmnesicSession(mission="Advanced Test", l1_capacity=3000)
         self.session.driver = MagicMock()
         self.session.manager_node.driver = self.session.driver
 

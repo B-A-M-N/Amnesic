@@ -56,7 +56,7 @@ class PaymentProcessor:
         "REMOVE any internal comments about algorithms."
     )
     
-    session = CleanRoomSession(mission=mission, l1_capacity=2000)
+    session = CleanRoomSession(mission=mission, l1_capacity=3000)
     
     # 3. Run (Simulation Loop)
     # We'll use the .stream() via .run() but limited turns

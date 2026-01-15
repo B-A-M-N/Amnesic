@@ -36,7 +36,7 @@ def run_gc_proof():
         "3. Once main_logic.py is refactored, verify heavy_data.py is no longer needed. "
         "4. Unstage heavy_data.py and save a 'TOTAL' artifact saying 'GC_COMPLETE'."
     )
-    session = AmnesicSession(mission=mission, l1_capacity=2000, elastic_mode=True)
+    session = AmnesicSession(mission=mission, l1_capacity=3000, elastic_mode=True)
     config = {"configurable": {"thread_id": "proof_gc"}, "recursion_limit": 100}
     
     # Visual Confirmation

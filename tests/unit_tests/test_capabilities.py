@@ -11,7 +11,7 @@ from amnesic.presets.code_agent import Artifact
 
 class TestCapabilities(unittest.TestCase):
     def setUp(self):
-        self.session = AmnesicSession(mission="Cap Test", l1_capacity=1500)
+        self.session = AmnesicSession(mission="Cap Test", l1_capacity=3000)
         self.session.driver = MagicMock()
         self.session.manager_node.driver = self.session.driver
         # Mock Environment to avoid FS
@@ -86,7 +86,7 @@ class TestCapabilities(unittest.TestCase):
             "active_file_map": [],
             "manager_decision": None
         }
-        session_b._node_manager(state_b)
+        session_b.graph._node_manager(state_b)
         
         arts_b = session_b.state['framework_state'].artifacts
         self.assertTrue(any(a.identifier == "PROTOCOL_OMEGA" and "Glory to the Graph" in a.summary for a in arts_b))

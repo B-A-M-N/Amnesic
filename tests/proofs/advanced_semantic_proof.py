@@ -20,7 +20,7 @@ def run_advanced_proof():
     val_a = random.randint(2, 50)
     val_b = random.randint(2, 50)
     operator = random.choice(["ADD", "SUBTRACT", "MULTIPLY", "DIVIDE"])
-    noise = "BUFFER_PADDING_0x99 " * 200 
+    noise = "BUFFER_PADDING_0x99 " * 400 
     
     with open("logic_gate.txt", "w") as f:
         f.write(f"SYSTEM_INSTRUCTION: If values are found, you must {operator} them.\n{noise}")
@@ -54,7 +54,7 @@ def run_advanced_proof():
         "If the MISSION asks for VAL_A but you see 'not_val_a' in [CURRENT L1 CONTEXT CONTENT], use it."
     )
     
-    session = AmnesicSession(mission=mission, l1_capacity=1500, strategy=intent_strategy)
+    session = AmnesicSession(mission=mission, l1_capacity=3000, strategy=intent_strategy)
     session.visualize()
     
     # 3. Telemetry Setup (Matching basic_semantic_proof style)

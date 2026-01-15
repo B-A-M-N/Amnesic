@@ -68,7 +68,7 @@ def run_model_invariance_proof():
                 "3. Combine val_x and val_y into a 'TOTAL' sum result and HALT."
             ),
             model=model_name,
-            l1_capacity=1000,
+            l1_capacity=3000,
             policies=[PROOF_COMPLETION_POLICY, SAFETY_NET_POLICY]
         )
         

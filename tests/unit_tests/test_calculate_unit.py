@@ -15,7 +15,7 @@ class TestCalculateToolEdgeCases(unittest.TestCase):
     Avoids 'Island Hopping' or high-level mission state tests covered elsewhere.
     """
     def setUp(self):
-        self.session = AmnesicSession(model="dummy", l1_capacity=1000)
+        self.session = AmnesicSession(model="dummy", l1_capacity=3000)
         self.session.driver = MagicMock()
         self.session.state['framework_state'].artifacts = []
 

@@ -59,18 +59,16 @@ def calculate_net_pay(employee: Employee) -> float:
     ...
 """
     
-    # 3. Initialize Session
+    # 2. Initialize Session
     mission = (
-        "MISSION: Migrate 'legacy_payroll.py' to Modern Python. "
-        "1. Use the EXACT 'Employee' dataclass from 'EmployeeSchema' (identifier, type, summary). "
-        "2. Implement 'calculate_net_pay(employee: Employee) -> float'. "
-        "3. Logic: Net = Gross - (Gross * 0.20). "
-        "4. MANDATORY: Use snake_case only. Do NOT preserve camelCase from legacy. "
-        "5. SAVE the cleaned code as an ARTIFACT named 'modern_payroll.py'. "
-        "6. Finally, save a 'TOTAL' artifact saying 'MIGRATION_COMPLETE' and halt."
+        "MISSION: 1. Read legacy_payroll.py. "
+        "2. Create a 'modern_payroll.py' artifact using the Employee schema. "
+        "3. Unstage legacy_payroll.py. "
+        "4. Save a final artifact named 'MIGRATION_COMPLETE' to signal finish. "
+        "5. Halt."
     )
     
-    session = RosettaSession(mission=mission, l1_capacity=2000)
+    session = RosettaSession(mission=mission, l1_capacity=3000)
     
     # 3. Run
     console.print("\n[bold]2. Engaging Rosetta Agent...[/bold]")

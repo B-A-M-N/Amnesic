@@ -57,7 +57,7 @@ class TestHardeningV2(unittest.TestCase):
         )
         
         self.session.state['manager_decision'] = bad_move
-        result = self.session._node_auditor(self.session.state)
+        result = self.session.graph._node_auditor(self.session.state)
         
         self.assertEqual(result['last_audit']['auditor_verdict'], "REJECT")
         self.assertIn("SEMANTIC POLLUTION", result['last_audit']['rationale'])

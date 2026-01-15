@@ -1,3 +1,4 @@
+import re
 from typing import Callable, Optional
 from dataclasses import dataclass
 from amnesic.presets.code_agent import FrameworkState, ManagerMove
@@ -20,20 +21,28 @@ def _check_mission_complete(state: FrameworkState) -> bool:
     Strictly restricted to avoid premature completion in complex missions.
     """
     # Only trigger if the mission explicitly saved a result with identifier "TOTAL"
-    # AND we have a verification artifact or it's a simple mission.
-    has_total = any(a.identifier == "TOTAL" or "SUCCESS" in a.identifier.upper() for a in state.artifacts)
+    # or "SUCCESS" or "COMPLETE"
+    has_total = any(a.identifier == "TOTAL" or 
+                    "SUCCESS" in a.identifier.upper() or 
+                    "COMPLETE" in a.identifier.upper() for a in state.artifacts)
     has_verification = any(a.identifier == "VERIFICATION" for a in state.artifacts)
     has_violation = any("VIOLATION" in a.identifier.upper() for a in state.artifacts)
     
-    # If it's a violation, we can halt immediately.
-    if has_violation: return True
-    
+    # MISSION SENSITIVITY: If the mission explicitly asks for a named artifact 
+    # (e.g. 'MIGRATION_COMPLETE'), DO NOT trigger the generic completion policy
+    # unless that specific artifact exists.
+    mission_text = state.task_intent.lower()
+    named_art_matches = re.findall(r"artifact named ['\"]([^'\"]+)['\"]", mission_text)
+    for named_art in named_art_matches:
+        if not any(a.identifier.lower() == named_art.lower() for a in state.artifacts):
+            return False
+
     # Otherwise, we usually want both a total result and some form of verification
     # or the agent has explicitly stated mission completion in the hypothesis or feedback.
     manager_thinks_complete = "COMPLETE" in state.current_hypothesis.upper() or \
                              (state.last_action_feedback and "COMPLETE" in state.last_action_feedback.upper())
     
-    return has_total and (has_verification or manager_thinks_complete)
+    return has_violation or (has_total and (has_verification or manager_thinks_complete))
 
 def _react_mission_complete(state: FrameworkState) -> ManagerMove:
     """Forces a halt when mission is complete."""
@@ -42,7 +51,9 @@ def _react_mission_complete(state: FrameworkState) -> ManagerMove:
     if not art:
         art = next((a for a in state.artifacts if "VIOLATION" in a.identifier.upper()), None)
     if not art:
-        art = next((a for a in state.artifacts if a.identifier == "VERIFICATION"), None)
+        art = next((a for a in state.artifacts if "COMPLETE" in a.identifier.upper()), None)
+    if not art:
+        art = next((a for a in state.artifacts if "VERIFICATION" in a.identifier.upper()), None)
     
     return ManagerMove(
         thought_process=f"The {art.identifier} artifact is present. The mission is complete.",

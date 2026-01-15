@@ -39,7 +39,7 @@ def run_elastic_proof():
         "Do NOT unstage config_base.py until the mission is complete."
     )
     
-    session = AmnesicSession(mission=mission, l1_capacity=2000, elastic_mode=True)
+    session = AmnesicSession(mission=mission, l1_capacity=3000, elastic_mode=True)
     config = {"configurable": {"thread_id": "proof_elastic"}, "recursion_limit": 100}
     
     session.visualize()

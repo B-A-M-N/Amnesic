@@ -47,14 +47,14 @@ def run_workspace_nexus_proof():
         "2. Extract the correct signature of 'process_payment' and SAVE it as a CONTRACT ARTIFACT immediately.\n"
         "3. Unstage 'nexus_lib/gateway.py'.\n"
         "4. Stage 'nexus_app/service.py'.\n"
-        "5. Fix the 'process_payment' call in 'nexus_app/service.py' to match the CONTRACT ARTIFACT.\n"
+        "5. Fix the 'process_payment' call in 'nexus_app/service.py' to match the CONTRACT ARTIFACT. You must SWAP the arguments (amount first).\n"
         "6. Once fixed, save a 'TOTAL' artifact saying 'NEXUS_FIX_COMPLETE' and halt."
     )
     
     session = AmnesicSession(
         mission=mission, 
         root_dir=[repo_lib, repo_app], 
-        l1_capacity=2000
+        l1_capacity=3000
     )
     config = {"configurable": {"thread_id": "proof_nexus"}, "recursion_limit": 100}
     

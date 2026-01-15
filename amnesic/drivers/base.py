@@ -7,6 +7,16 @@ class LLMDriver(ABC):
     Abstract Base Class for LLM interactions.
     Ensures that any model plugged into Amnesic follows the same contract.
     """
+    last_request_tokens: int = 0
+
+    def _update_token_usage(self, system_prompt: str, user_prompt: str) -> None:
+        """
+        Updates the token usage counter for the last request.
+        Uses a rough approximation of 4 characters per token.
+        """
+        total_chars = len(system_prompt) + len(user_prompt)
+        self.last_request_tokens = total_chars // 4
+
     @abstractmethod
     def embed(self, text: str) -> List[float]:
         """Generates a vector embedding for the given text."""

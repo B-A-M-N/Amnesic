@@ -1,0 +1,1 @@
+"modern_payroll.py", "content": "# Modern Python Payroll System\nfrom dataclasses import dataclass\n\n@dataclass\nclass Employee:\n    name: str\n    hourly_rate: float\n    hours_worked: float\n\ndef calculate_net_pay(employee: Employee) -> float:\n    gross_pay = employee.hours_worked * employee.hourly_rate\n    net_pay = gross_pay - (gross_pay * 0.20)\n    return net_pay"}

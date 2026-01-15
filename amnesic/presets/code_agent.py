@@ -51,8 +51,9 @@ class FrameworkState(BaseModel):
 class ManagerMove(BaseModel):
     thought_process: str = Field(..., min_length=10, description="Internal logic: what I see in L1 and what I need next.")
     tool_call: Literal["stage_context", "unstage_context", "save_artifact", "delete_artifact", "stage_artifact", "edit_file", "write_file", "halt_and_ask", "verify_step", "calculate", "switch_strategy", "compare_files"]
-    # [CRITICAL FIX] Default to empty string to prevent validation crashes
-    target: str = Field(default="", min_length=0, description="The argument for the tool. Use empty string if none.")
+    # [CRITICAL FIX] Allow Optional to prevent validation crashes when model sends null
+    target: Optional[str] = Field(default="", min_length=0, description="The argument for the tool. Use empty string if none.")
+    policy_name: Optional[str] = Field(None, description="The name of the policy that triggered this move.")
 
 # --- 4. The Auditor's Output (NEW) ---
 
@@ -152,6 +153,7 @@ CURRENT FRAMEWORK STATE:
 WARNING: If you skip step 2, the data is LOST forever.
 
 ### STATE CONSISTENCY RULE ###
+- **PINNED PAGES**: You are FORBIDDEN from using 'unstage_context' on any page marked as '(PINNED: CANNOT UNSTAGE)'. These are critical system state.
 - **INFRASTRUCTURE TRUTH**: You are FORBIDDEN from using 'stage_context' on files that do not appear in the [ENVIRONMENT STRUCTURE] list above.
 - Before you act, check the 'Artifacts' list.
 - IF an artifact exists (e.g., 'X_value=38' or 'CONTRACT_ARTIFACT'), **DO NOT** try to read that file again or perform that task again. MOVE TO THE NEXT STEP IN THE MISSION.
@@ -166,6 +168,8 @@ WARNING: If you skip step 2, the data is LOST forever.
 - FOCUS only on what is missing. If you have the contract, update the client.
 - **STOP LOOPING**: If your last action was rejected or you are repeating yourself, CHANGE STRATEGY immediately.
 - **NO REDUNDANCY**: Do not re-stage files you have already extracted data from. Check your 'Decision History' and 'Saved Artifacts' before every move.
+- **ARTIFACT COMPARISON**: If the mission requires comparing two pieces of data that are BOTH already in 'The Backpack', compare them line-by-line in your thought process. DO NOT use 'verify_step' for logic/equality checks between artifacts. If they mismatch, use 'halt_and_ask' with 'VIOLATION: <reason>'.
+- **STRATEGY ADHERENCE**: If a 'strategy' is defined in your Framework State (e.g., 'CONTRACT VERIFIER'), you MUST prioritize those specific instructions over general defaults.
 
 ### ⚠️ AMNESIC PROTOCOL WARNING ⚠️
 1. **Volatile Memory:** Your L1 Context is **wiped instantly** when you unstage a file.
@@ -183,7 +187,8 @@ HARD CONSTRAINTS: {constraints}
 YOUR RESPONSIBILITY:
 1. SAFETY FIRST: Reject destructive actions (delete, overwrite without reading).
 2. INFORMATION GATHERING: You MUST APPROVE 'stage_context' if the file exists and is relevant to the mission. Reading files is NOT dangerous.
-3. LOGIC CHECK: Reject 'write_artifact' if the Decision Engine is hallucinating or hasn't read the file yet.
+3. LOGIC CHECK: Reject 'save_artifact' if the Decision Engine is hallucinating or hasn't read the file yet.
+4. MEMORY AUDIT: The agent uses 'Saved Artifacts' (The Backpack) as its long-term memory. Once a fact is saved to the Backpack, the agent is EXPECTED to unstage the source file. DO NOT reject a calculation or halt if the required facts are already in the Backpack.
 
 VALID OUTCOMES:
 - PASS: If the action is correct and safe.

@@ -61,7 +61,7 @@ def calculate(a, b, op):
         "4. Halt once 'resolved.py' is created."
     )
     
-    session = MediatorSession(mission=mission, l1_capacity=2000)
+    session = MediatorSession(mission=mission, l1_capacity=3000)
     
     # 3. Run
     console.print("\n[bold]2. Engaging Mediator Agent...[/bold]")

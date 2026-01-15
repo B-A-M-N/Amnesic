@@ -32,7 +32,7 @@ class TestContractsUnit(unittest.TestCase):
         
         arts = self.session.state['framework_state'].artifacts
         verif = next(a for a in arts if a.identifier == "VERIFICATION")
-        self.assertIn("NOTE: 'missing_keyword' not found", verif.summary)
+        self.assertIn("'missing_keyword' is NOT present", verif.summary)
 
     def test_verify_step_math_logic(self):
         """Verify _tool_verify_step performs math based on artifact content."""

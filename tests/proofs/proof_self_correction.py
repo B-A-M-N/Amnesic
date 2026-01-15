@@ -68,7 +68,7 @@ def run_self_correction_proof():
     
     strategy = "STRATEGY: STRICT PROTOCOL ENFORCEMENT. Follow the a-b-c-d-e steps EXACTLY. Do not deviate. Do not re-read files once you have the info."
     
-    session = AmnesicSession(mission=mission, l1_capacity=2000, strategy=strategy, policies=[anti_loop_policy])
+    session = AmnesicSession(mission=mission, l1_capacity=3000, strategy=strategy, policies=[anti_loop_policy])
     config = {"configurable": {"thread_id": "proof_self_correction"}, "recursion_limit": 100}
     
     session.visualize()

@@ -13,6 +13,7 @@ class OpenAIDriver(LLMDriver):
         self.temperature = temperature
         self.seed = seed
         self.client = openai.OpenAI(api_key=api_key, base_url=base_url)
+        self.last_request_tokens = 0
 
     def embed(self, text: str) -> List[float]:
         try:
@@ -33,6 +34,7 @@ class OpenAIDriver(LLMDriver):
         stream_callback: Optional[Callable[[str], None]] = None,
         retries: int = 2
     ) -> BaseModel:
+        self._update_token_usage(system_prompt, user_prompt)
         messages = [
             {"role": "system", "content": system_prompt},
             {"role": "user", "content": user_prompt}
@@ -66,6 +68,7 @@ class OpenAIDriver(LLMDriver):
         raise RuntimeError(f"OpenAI failed to generate valid {schema.__name__}")
 
     def generate_raw(self, prompt: str, system_prompt: str) -> str:
+        self._update_token_usage(system_prompt, prompt)
         response = self.client.chat.completions.create(
             model=self.model_name,
             messages=[

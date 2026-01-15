@@ -7,11 +7,12 @@ from pydantic import BaseModel, Field, ValidationError
 from langchain_ollama import ChatOllama
 from langchain_core.messages import SystemMessage, HumanMessage
 from langchain_core.exceptions import OutputParserException
+from .base import LLMDriver
 
 logger = logging.getLogger("amnesic.driver")
 
-class OllamaDriver:
-    def __init__(self, model_name: str = "qwen2.5-coder:7b", temperature: float = 0.1, num_ctx: int = 2048, seed: Optional[int] = None):
+class OllamaDriver(LLMDriver):
+    def __init__(self, model_name: str = "qwen2.5-coder:7b", temperature: float = 0.1, num_ctx: int = 8192, seed: Optional[int] = None):
         """
         The low-level interface to the LLM. 
         Designed to be stateless to allow rapid 'Frame Swapping'.
@@ -59,11 +60,6 @@ class OllamaDriver:
         For this stateless implementation, it's a no-op but serves as a logic gate.
         """
         pass
-
-    def _update_token_usage(self, system_prompt: str, user_prompt: str):
-        # Rough approximation: 4 chars per token
-        total_chars = len(system_prompt) + len(user_prompt)
-        self.last_request_tokens = total_chars // 4
 
     def _safe_parse_json(self, content: str, schema: Type[BaseModel]) -> BaseModel:
         """
@@ -306,6 +302,23 @@ class OllamaDriver:
             if schema.__name__ == "AuditorVerdict":
                 if "rationate" in data and "rationale" not in data: data["rationale"] = data.pop("rationate")
                 if "rationction" in data and "rationale" not in data: data["rationale"] = data.pop("rationction")
+            
+            # --- NULL TARGET HEALING ---
+            if schema.__name__ == "ManagerMove" and data.get("target") is None:
+                data["target"] = ""
+            
+            # --- DICT TARGET HEALING ---
+            if schema.__name__ == "ManagerMove" and isinstance(data.get("target"), dict):
+                t_dict = data["target"]
+                if "key" in t_dict and "value" in t_dict:
+                    data["target"] = f"{t_dict['key']}={t_dict['value']}"
+                elif "artifact_key" in t_dict:
+                    # Model hallucinated structured artifact save
+                    data["target"] = t_dict["artifact_key"]
+                else:
+                    # Fallback stringify
+                    data["target"] = json.dumps(t_dict)
+                
             return schema.model_validate(data)
         except (json.JSONDecodeError, ValueError, ValidationError):
             pass
@@ -319,6 +332,21 @@ class OllamaDriver:
             if schema.__name__ == "AuditorVerdict":
                 if "rationate" in data and "rationale" not in data: data["rationale"] = data.pop("rationate")
                 if "rationction" in data and "rationale" not in data: data["rationale"] = data.pop("rationction")
+            
+            # --- NULL TARGET HEALING ---
+            if schema.__name__ == "ManagerMove" and data.get("target") is None:
+                data["target"] = ""
+            
+            # --- DICT TARGET HEALING ---
+            if schema.__name__ == "ManagerMove" and isinstance(data.get("target"), dict):
+                t_dict = data["target"]
+                if "key" in t_dict and "value" in t_dict:
+                    data["target"] = f"{t_dict['key']}={t_dict['value']}"
+                elif "artifact_key" in t_dict:
+                    data["target"] = t_dict["artifact_key"]
+                else:
+                    data["target"] = json.dumps(t_dict)
+                
             return schema.model_validate(data)
         except (json.JSONDecodeError, ValueError, ValidationError):
             pass
@@ -337,6 +365,8 @@ class OllamaDriver:
         Streams the raw JSON output to a callback while accumulating for parsing.
         This allows the user to see the reasoning (rationale) as it is generated.
         """
+        self._update_token_usage(system_prompt, user_prompt)
+
         messages = [
             SystemMessage(content=system_prompt),
             HumanMessage(content=user_prompt)

@@ -1,28 +1,13 @@
-from typing import TypedDict, List, Literal, Optional, Dict, Any
-from amnesic.presets.code_agent import FrameworkState, Artifact
-
-class DecisionTrace(TypedDict):
-    step: int
-    tool_call: str
-    rationale: str
-    auditor_verdict: str
-    confidence_score: float
+from typing import TypedDict, List, Optional, Dict, Any
+from amnesic.presets.code_agent import FrameworkState, ManagerMove
 
 class AgentState(TypedDict):
-    # The "Save File" - Strict Pydantic Model
+    """
+    The Single Source of Truth for the LangGraph state.
+    """
     framework_state: FrameworkState
-    
-    # The Fluid Context (L1 Cache)
-    active_file_map: dict
-    current_context_window: str
-    
-    # History & Metadata
-    decision_history: List[DecisionTrace]
-    global_uncertainty: float
-    last_error: Optional[str]
-    chat_history: List[dict]
-    
-    # Transient State
-    manager_decision: Dict[str, Any]
-    last_drift_score: float
-    pager: Any
+    active_file_map: List[Dict[str, Any]]
+    manager_decision: Optional[ManagerMove]
+    last_audit: Optional[dict] 
+    tool_output: Optional[str]
+    last_node: Optional[str]

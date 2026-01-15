@@ -17,7 +17,7 @@ class TestFrameworkIntegration(unittest.TestCase):
         with open("island_a.txt", "w") as f: f.write("val_x = 10")
         with open("island_b.txt", "w") as f: f.write("val_y = 20")
         
-        session = AmnesicSession(mission="Sum val_x and val_y", l1_capacity=1500)
+        session = AmnesicSession(mission="Sum val_x and val_y", l1_capacity=3000)
         mock_driver = MagicMock()
         session.driver = mock_driver
         session.manager_node.driver = mock_driver
@@ -56,7 +56,7 @@ class TestFrameworkIntegration(unittest.TestCase):
         """Integration: Basic Code Modification (Junior Dev Fix)"""
         with open("app.py", "w") as f: f.write("rate = 0.5")
         
-        session = AmnesicSession(mission="Change 0.5 to 0.05", l1_capacity=1500)
+        session = AmnesicSession(mission="Change 0.5 to 0.05", l1_capacity=3000)
         mock_driver = MagicMock()
         session.driver = mock_driver
         session.manager_node.driver = mock_driver

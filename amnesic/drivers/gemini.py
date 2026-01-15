@@ -17,6 +17,7 @@ class GeminiDriver(LLMDriver):
         genai.configure(api_key=api_key)
         self.model = genai.GenerativeModel(model_name)
         self.seed = seed
+        self.last_request_tokens = 0
 
     def embed(self, text: str) -> List[float]:
         try:
@@ -43,6 +44,7 @@ class GeminiDriver(LLMDriver):
         stream_callback: Optional[Callable[[str], None]] = None,
         retries: int = 2
     ) -> BaseModel:
+        self._update_token_usage(system_prompt, user_prompt)
         
         import google.generativeai as genai
         
@@ -81,6 +83,7 @@ class GeminiDriver(LLMDriver):
         raise RuntimeError(f"Gemini failed to generate valid {schema.__name__}")
 
     def generate_raw(self, prompt: str, system_prompt: str) -> str:
+        self._update_token_usage(system_prompt, prompt)
         chat = self.model.start_chat(history=[
              {"role": "user", "parts": [system_prompt]}
         ])

@@ -44,7 +44,7 @@ def run_cognitive_load_proof():
         "Once done, save a 'TOTAL' artifact saying 'FIX_COMPLETE'. "
         "Ignore distractor files."
     )
-    session = AmnesicSession(mission=mission, l1_capacity=1000)
+    session = AmnesicSession(mission=mission, l1_capacity=3000)
     config = {"configurable": {"thread_id": "proof_cognitive_load"}, "recursion_limit": 100}
     
     session.visualize()

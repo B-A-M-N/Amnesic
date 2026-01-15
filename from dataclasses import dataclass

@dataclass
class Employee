@@ -1,0 +1,10 @@
+name: str
+    hourly_rate: float
+    hours_worked: float
+
+
+def calculate_pay(employee: Employee) -> float:
+    gross_pay = employee.hourly_rate * employee.hours_worked
+    tax_rate = 0.20  # Example tax rate, not global
+    net_pay = gross_pay * (1 - tax_rate)
+    return net_pay

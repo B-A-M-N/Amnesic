@@ -12,6 +12,8 @@ from amnesic.core.environment import ExecutionEnvironment
 from amnesic.core.dynamic_pager import DynamicPager
 from amnesic.core.comparator import Comparator
 from amnesic.core.sidecar import SharedSidecar
+from amnesic.core.state import AgentState
+from amnesic.core.graph_engine import GraphEngine
 from amnesic.decision.manager import Manager, ManagerMove
 from amnesic.decision.auditor import Auditor
 from amnesic.decision.worker import Worker
@@ -20,22 +22,13 @@ from amnesic.core.policies import KernelPolicy, DEFAULT_COMPLETION_POLICY, CRITI
 from amnesic.presets.code_agent import FrameworkState, Artifact
 from amnesic.core.memory import compress_history
 
-# --- 1. Define LangGraph State ---
-class AgentState(TypedDict):
-    framework_state: FrameworkState
-    active_file_map: List[Dict[str, Any]]
-    manager_decision: Optional[ManagerMove]
-    last_audit: Optional[dict] 
-    tool_output: Optional[str]
-    last_node: Optional[str]
-
 class AmnesicSession:
     def __init__(self, 
                  mission: str = "TASK: Default Mission.", 
                  root_dir: Union[str, List[str]] = ".", 
                  model: str = "rnj-1:8b-cloud", 
                  provider: str = "ollama",
-                 l1_capacity: int = 4000,
+                 l1_capacity: int = 3000,
                  sidecar: Optional[SharedSidecar] = None,
                  deterministic_seed: int = None,
                  strategy: str = None,
@@ -43,7 +36,8 @@ class AmnesicSession:
                  base_url: str = None,
                  elastic_mode: bool = False,
                  sandbox: bool = False,
-                 policies: List[KernelPolicy] = []):
+                 policies: List[KernelPolicy] = [],
+                 use_default_policies: bool = True):
         
         self.mission = mission
         self.sandbox = sandbox
@@ -56,7 +50,11 @@ class AmnesicSession:
         self.elastic_mode = elastic_mode
         self.console = Console()
         
-        driver_kwargs = {"num_ctx": l1_capacity}
+        # HEAD ROOM CALCULATION:
+        # l1_capacity is the WORKING memory. 
+        # We need an additional ~4000 tokens for System Prompt + Decision History + Structure.
+        num_ctx = l1_capacity + 4000
+        driver_kwargs = {"num_ctx": num_ctx}
         if deterministic_seed is not None:
             driver_kwargs["temperature"] = 0.0
             driver_kwargs["seed"] = deterministic_seed
@@ -72,7 +70,8 @@ class AmnesicSession:
         self.pager.pin_page("SYS:MISSION", f"MISSION: {mission}")
         self.sidecar = sidecar 
         
-        active_policies = [DEFAULT_COMPLETION_POLICY, CRITICAL_ERROR_POLICY] + policies
+        defaults = [DEFAULT_COMPLETION_POLICY, CRITICAL_ERROR_POLICY] if use_default_policies else []
+        active_policies = defaults + policies
         self.manager_node = Manager(self.driver, elastic_mode=elastic_mode, policies=active_policies)
         self.auditor_node = Auditor(goal=mission, constraints=["NO_DELETES"], driver=self.driver, elastic_mode=elastic_mode)
         
@@ -81,7 +80,7 @@ class AmnesicSession:
         
         self.checkpointer = MemorySaver()
         
-        self.state = {
+        self.state: AgentState = {
             "framework_state": FrameworkState(
                 task_intent=mission,
                 current_hypothesis="Initial Assessment",
@@ -96,10 +95,12 @@ class AmnesicSession:
             "active_file_map": [],
             "manager_decision": None,
             "last_audit": None,
+            "tool_output": None,
             "last_node": None
         }
         
-        self.app = self._build_graph()
+        self.graph = GraphEngine(self)
+        self.app = self.graph.app
 
     def run(self, config: dict = None):
         cfg = config or {"configurable": {"thread_id": "default"}}
@@ -143,10 +144,20 @@ class AmnesicSession:
                     fw_state.artifacts.append(Artifact(identifier=k, type="config", summary=str(v), status="verified_invariant"))
         
         active_content = self.pager.render_context()
+        query_instruction = (
+            f"[QUERY MODE: ANSWER FROM MEMORY ONLY]\n"
+            f"Question: {question}\n"
+            f"RULES:\n"
+            f"1. You are FORBIDDEN from using 'stage_context' or 'edit_file'.\n"
+            f"2. You MUST answer using ONLY the persistent artifacts listed in 'The Backpack'.\n"
+            f"3. If the answer is in your artifacts, state it. If not, say you don't know.\n"
+            f"4. Do NOT attempt to read the disk."
+        )
         move = self.manager_node.decide(
             state=fw_state, file_map=self.env.refresh_substrate(),
-            pager=self.pager, history_block=f"[QUERY MODE]\nAnswer the following question using your persistent artifacts: {question}",
-            active_context=active_content
+            pager=self.pager, history_block=query_instruction,
+            active_context=active_content,
+            forbidden_tools=['stage_context', 'unstage_context', 'edit_file', 'write_file', 'compare_files', 'save_artifact', 'delete_artifact']
         )
         return move.thought_process
 
@@ -232,105 +243,6 @@ class AmnesicSession:
         except Exception as e:
             self.state['framework_state'].last_action_feedback = f"Compare Error: {str(e)}"
 
-    def _build_graph(self):
-        workflow = StateGraph(AgentState)
-        workflow.add_node("manager", self._node_manager)
-        workflow.add_node("auditor", self._node_auditor)
-        workflow.add_node("executor", self._node_executor)
-        workflow.set_entry_point("manager")
-        workflow.add_edge("manager", "auditor")
-        def router(state):
-            # Terminate if Auditor halts or if Manager halts successfully
-            if state['last_audit']['auditor_verdict'] == "HALT": return END
-            if state['last_audit']['auditor_verdict'] == "PASS" and state['manager_decision'].tool_call == "halt_and_ask": return END
-            return "executor"
-        workflow.add_conditional_edges("auditor", router, {"executor": "executor", END: END})
-        workflow.add_edge("executor", "manager")
-        return workflow.compile(checkpointer=self.checkpointer)
-
-    def _node_manager(self, state: AgentState):
-        print(f"DEBUG: Manager received state. Feedback: {state['framework_state'].last_action_feedback}")
-        self.pager.tick()
-        current_map = self.env.refresh_substrate()
-        
-        # Physical Garbage Collection: If a file was deleted or is no longer in the map, 
-        # it should probably be removed from L1 to prevent hallucination.
-        valid_paths = [os.path.basename(f['path']) for f in current_map]
-        active_keys = list(self.pager.active_pages.keys())
-        for k in active_keys:
-            if "SYS:" in k: continue
-            clean_k = k.replace("FILE:", "")
-            if clean_k not in valid_paths:
-                print(f"         Kernel: Physical GC - Removing {clean_k} (Missing from substrate)")
-                del self.pager.active_pages[k]
-
-        active_pages = [p.replace("FILE:", "") for p in self.pager.active_pages.keys() if "SYS:" not in p]
-        l1_status = f"L1 RAM CONTENT: {', '.join(active_pages) if active_pages else 'EMPTY'}"
-        if self.sidecar:
-            shared = self.sidecar.get_all_knowledge()
-            for k, v in shared.items():
-                if not any(a.identifier == k for a in state['framework_state'].artifacts):
-                    state['framework_state'].artifacts.append(Artifact(identifier=k, type="config", summary=str(v), status="verified_invariant"))
-        history = state['framework_state'].decision_history
-        history_lines = [f"Turn {i}: {h.get('tool_call', 'unknown')} -> {h['auditor_verdict']}" for i, h in enumerate(history)]
-        history_block = "[HISTORY]\n" + compress_history(history_lines, max_turns=10)
-        move = self.manager_node.decide(state=state['framework_state'], file_map=current_map, pager=self.pager, history_block=history_block, active_context=l1_status)
-        
-        print(f"[Turn {len(history)+1}] Manager: {move.tool_call}({move.target})")
-        return {"manager_decision": move, "active_file_map": current_map, "last_node": "manager"}
-
-    def _node_auditor(self, state: AgentState):
-        move = state['manager_decision']
-        if move.tool_call in ["stage_context", "edit_file", "write_file"]:
-            try: self._safe_path(move.target.split(":", 1)[0].strip() if ":" in move.target else move.target)
-            except PermissionError as e:
-                audit = {"auditor_verdict": "REJECT", "rationale": str(e)}
-                # Ensure turn is recorded correctly in history
-                turn = len(state['framework_state'].decision_history) + 1
-                state['framework_state'].decision_history.append({"turn": turn, "tool_call": move.tool_call, "target": move.target, "auditor_verdict": "REJECT", "rationale": str(e)})
-                return {"last_audit": audit, "framework_state": state['framework_state'], "last_node": "auditor"}
-        
-        valid_files = [f['path'] for f in state.get('active_file_map', [])]
-        active_pages_clean = [p.replace("FILE:", "") for p in self.pager.active_pages.keys()]
-        audit = self.auditor_node.evaluate_move(move.tool_call, move.target, move.thought_process, valid_files, active_pages_clean, state['framework_state'].decision_history, state['framework_state'].artifacts, active_context=self.pager.render_context())
-        
-        print(f"         Auditor: {audit['auditor_verdict']} ({audit['rationale']})")
-        
-        # Use the actual verdict from evaluation
-        turn = len(state['framework_state'].decision_history) + 1
-        state['framework_state'].decision_history.append({"turn": turn, "tool_call": move.tool_call, "target": move.target, "auditor_verdict": audit["auditor_verdict"], "rationale": audit["rationale"]})
-        return {"last_audit": audit, "framework_state": state['framework_state'], "last_node": "auditor"}
-
-    def _node_executor(self, state: AgentState):
-        move = state['manager_decision']
-        if state['last_audit']["auditor_verdict"] == "PASS":
-            try: 
-                print(f"         Executor: Executing {move.tool_call}")
-                # Reset feedback before execution to detect if tool updates it
-                self.state['framework_state'].last_action_feedback = None
-                self.tools.execute(move.tool_call, target=move.target)
-                
-                # Only set default success if tool didn't set feedback
-                if self.state['framework_state'].last_action_feedback is None:
-                    self.state['framework_state'].last_action_feedback = f"SUCCESS: {move.tool_call}"
-                
-                # Update history with execution result
-                if state['framework_state'].decision_history:
-                    state['framework_state'].decision_history[-1]["execution_result"] = "SUCCESS"
-            except Exception as e: 
-                print(f"         Executor: ERROR {str(e)}")
-                self.state['framework_state'].last_action_feedback = f"ERROR: {str(e)}"
-                # Update history with execution failure
-                if state['framework_state'].decision_history:
-                    state['framework_state'].decision_history[-1]["execution_result"] = f"ERROR: {str(e)}"
-                    state['framework_state'].decision_history[-1]["auditor_verdict"] = "FAILED_EXECUTION"
-        else: 
-            self.state['framework_state'].last_action_feedback = f"REJECTED: {state['last_audit']['rationale']}"
-            if state['framework_state'].decision_history:
-                state['framework_state'].decision_history[-1]["execution_result"] = "NOT_EXECUTED"
-        
-        return {"framework_state": self.state['framework_state'], "last_node": "executor"}
-
     def _tool_stage(self, target: str):
         # Handle multiple paths or quoted paths
         targets = [t.strip().strip("'").strip('"').strip('`') for t in target.replace(',', ' ').split()]
@@ -388,7 +300,8 @@ class AmnesicSession:
             identifier = "TOTAL"
             # Combine all existing artifacts into context for the worker
             arts_context = "\n".join([f"{a.identifier}: {a.summary}" for a in self.state['framework_state'].artifacts])
-            result = worker.execute_task(f"Combine all parts into the final sentence: {target}", active_context + "\n" + arts_context, ["Raw sentence only."])
+            prompt = f"MISSION COMPLETION: Combine all discovered values and facts into a single final result. Requested format: {target}."
+            result = worker.execute_task(prompt, active_context + "\n" + arts_context, ["Final result only.", "If it's a math mission, provide the final number."])
             self.state['framework_state'].current_hypothesis = result.content
         else:
             # Check if artifact already exists with exact same data to prevent loops
@@ -397,7 +310,7 @@ class AmnesicSession:
             result = worker.execute_task(f"Extract {target}", active_context, ["Raw value only."])
             
             if self.elastic_mode and existing and existing.summary.strip() == result.content.strip():
-                self.state['framework_state'].last_action_feedback = f"Artifact {identifier} already contains this data. Mission progressing."
+                self.state['framework_state'].last_action_feedback = f"Artifact {identifier} already contains this EXACT data. STOP SAVING IT. Use 'unstage_context' or move to the next file."
                 return
 
         # 3. Save Artifact (Replacing existing with same identifier)
@@ -596,7 +509,7 @@ class AmnesicSession:
             self.state['framework_state'].last_action_feedback = f"Edit Failed: File {file_path} not found."
 
     def _tool_verify_step(self, target: str):
-        # Hybrid: If it looks like math, calculate. Else, verify presence in L1.
+        # Hybrid: If it looks like math, calculate. Else, verify presence in L1 or Artifacts.
         # Use regex for whole-word operator matching to avoid false positives (e.g., 'Add' in 'Address')
         math_operators = ["ADD", "SUBTRACT", "MULTIPLY", "DIVIDE"]
         has_math_pattern = re.search(r'[\d+\-*/]', target)
@@ -607,18 +520,30 @@ class AmnesicSession:
              return
 
         context = self.pager.render_context()
-        # If target looks like a filename (has extension), check physical disk via substrate
+        # 1. Physical disk check
+        found = False
         if "." in target and (target.endswith(".py") or target.endswith(".txt")):
             current_map = self.env.refresh_substrate()
             valid_paths = [os.path.basename(f['path']) for f in current_map]
             found = target in valid_paths
-        else:
-            # Fallback to content check
+        
+        # 2. Backpack check (Artifacts)
+        if not found:
+            for art in self.state['framework_state'].artifacts:
+                if target.lower() in art.identifier.lower() or target.lower() in art.summary.lower():
+                    found = True
+                    break
+        
+        # 3. L1 Content check
+        if not found:
             found = target in context
             
-        status = "PASSED" if found else "FAILED"
-        # Note matching output format for test_contracts_unit
-        summary = f"Verification {status}: '{target}' verified." if found else f"Verification {status}: NOTE: '{target}' not found."
+        status = "PASSED" if found else "REFUTED"
+        # More instructive failure message
+        if found:
+            summary = f"Verification {status}: '{target}' verified."
+        else:
+            summary = f"Verification {status}: '{target}' is NOT present in current context or artifacts. MOVE TO NEXT STEP."
         
         self.state['framework_state'].artifacts = [a for a in self.state['framework_state'].artifacts if a.identifier != "VERIFICATION"]
         self.state['framework_state'].artifacts.append(Artifact(identifier="VERIFICATION", type="result", summary=summary, status="committed"))

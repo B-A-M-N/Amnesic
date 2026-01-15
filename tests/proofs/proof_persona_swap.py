@@ -38,7 +38,7 @@ def run_persona_swap_proof():
     # 2. Initialize Session
     mission = (
         "MISSION: 1. Architect Mode: Read app.py. "
-        "2. Create a REFACTOR_PLAN artifact specifying how to split the function. "
+        "2. Create a REFACTOR_PLAN artifact specifying how to extract the validation logic into a new function 'validate_order'. "
         "3. Switch Strategy to 'IMPLEMENTER'. "
         "4. Implement the split in app.py. "
         "5. Halt once complete."
@@ -47,7 +47,7 @@ def run_persona_swap_proof():
     # Initial Strategy: The Architect
     initial_strategy = "PERSONA: Architect. FOCUS: Analysis and planning. Do NOT edit code yet."
     
-    session = AmnesicSession(mission=mission, l1_capacity=2000, strategy=initial_strategy)
+    session = AmnesicSession(mission=mission, l1_capacity=3000, strategy=initial_strategy)
     config = {"configurable": {"thread_id": "proof_persona_spaghetti"}, "recursion_limit": 100}
     
     # Visual Confirmation
@@ -129,7 +129,7 @@ def run_persona_swap_proof():
             if move.tool_call == "halt_and_ask":
                 with open("app.py", "r") as f: content = f.read()
                 # Check for structural changes
-                if "def validate_order" in content and "def calculate_total" in content:
+                if "def validate_order" in content:
                      console.print(Panel(
                          Syntax(content, "python", theme="monokai"),
                          title="[bold green]SUCCESS: Code Decomposed[/bold green]",

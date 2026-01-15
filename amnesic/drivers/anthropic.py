@@ -16,6 +16,7 @@ class AnthropicDriver(LLMDriver):
         self.model_name = model_name
         self.seed = seed
         self.client = anthropic.Anthropic(api_key=api_key)
+        self.last_request_tokens = 0
 
     def embed(self, text: str) -> List[float]:
         # Anthropic doesn't have a public embedding API that is standard yet in the SDK 
@@ -37,6 +38,7 @@ class AnthropicDriver(LLMDriver):
         stream_callback: Optional[Callable[[str], None]] = None,
         retries: int = 2
     ) -> BaseModel:
+        self._update_token_usage(system_prompt, user_prompt)
         
         # Construct the tool/function definition from the schema
         # This is a simplified mapping. Complex schemas might need recursive parsing.
@@ -83,6 +85,7 @@ class AnthropicDriver(LLMDriver):
         raise RuntimeError(f"Anthropic failed to generate valid {schema.__name__}")
 
     def generate_raw(self, prompt: str, system_prompt: str) -> str:
+        self._update_token_usage(system_prompt, prompt)
         response = self.client.messages.create(
             model=self.model_name,
             max_tokens=4096,

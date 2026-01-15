@@ -1,0 +1,19 @@
+@dataclass
+    class Employee:
+        name: str
+        hourly_rate: float
+        hours_worked: float
+
+    def __init__(self, tax_rate: float = 0.20):
+        self.tax_rate = tax_rate
+
+    def calculate_pay(self, employee: Employee) -> float:
+        """Calculate pay with tax deduction"""
+        gross = employee.hours_worked * employee.hourly_rate
+        net = gross - (gross * self.tax_rate)
+        return net
+
+    def generate_report(self, employee: Employee) -> str:
+        """Generate a formatted pay report"""
+        pay = self.calculate_pay(employee)
+        return f"Pay for {employee.name} is ${pay:.2f}"

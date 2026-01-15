@@ -14,12 +14,13 @@ def run_marathon_proof():
     console = Console()
     
     # 1. Setup: A deep dependency chain (10 files)
-    # Each file contains a piece of a sentence.
+    # Each file contains a piece of a sentence and heavy noise padding.
     sentence_parts = ["The", "Amnesic", "Protocol", "Enables", "Reliable", "Long", "Horizon", "Reasoning", "Without", "Drift"]
+    noise = "# BUFFER_PADDING " * 400
     
     for i, part in enumerate(sentence_parts):
         with open(f"step_{i}.txt", "w") as f:
-            f.write(f"PART_{i} = '{part}'")
+            f.write(f"PART_{i} = '{part}'\n{noise}")
             if i < len(sentence_parts) - 1:
                 f.write(f"\n# Next piece is in step_{i+1}.txt")
 
@@ -41,7 +42,7 @@ def run_marathon_proof():
         "Once you have all 10 parts, combine them into a single 'TOTAL' result and HALT."
     )
     
-    session = AmnesicSession(mission=mission, l1_capacity=2000)
+    session = AmnesicSession(mission=mission, l1_capacity=3000)
     # Marathon needs high recursion limit
     config = {"configurable": {"thread_id": "proof_marathon"}, "recursion_limit": 300}
     

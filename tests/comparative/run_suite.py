@@ -53,7 +53,7 @@ class ComparativeRunner:
         with open("vault_2.txt", "w") as f: f.write(f"ID_Y: {val_b}\n{noise}")
         
         mission = f"MISSION: Multiply ID_X ({val_a}) and ID_Y ({val_b})."
-        LIMIT = 1200
+        LIMIT = 3000
         
         with Live(create_dashboard(title, self.std_log, self.amn_log), refresh_per_second=4) as live:
             # Standard
@@ -87,7 +87,7 @@ class ComparativeRunner:
         self.amn_log = Text()
         
         mission = "MISSION: Implement User class. CONSTRAINT: NO GLOBAL VARIABLES."
-        LIMIT = 1500
+        LIMIT = 3000
         
         with Live(create_dashboard(title, self.std_log, self.amn_log), refresh_per_second=4) as live:
             # Standard (Simulation of drift)

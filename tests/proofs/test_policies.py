@@ -1,3 +1,7 @@
+import sys
+import os
+sys.path.append(os.path.abspath(os.path.join(os.path.dirname(__file__), "../../")))
+
 from amnesic.core.policies import KernelPolicy
 from amnesic.presets.code_agent import FrameworkState, ManagerMove
 
