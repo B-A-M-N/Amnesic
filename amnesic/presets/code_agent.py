@@ -43,6 +43,8 @@ class FrameworkState(BaseModel):
     unknowns: List[str] = Field(default_factory=list, description="List of specific knowledge gaps.")
     strategy: Optional[str] = Field(None, description="Task-specific overrides or personas (e.g., 'Intent Recovery').")
     elastic_mode: bool = Field(False, description="Whether to allow multiple files in L1.")
+    audit_profile_name: str = Field("STRICT_AUDIT", description="Current audit strictness level.")
+    active_policy_names: List[str] = Field(default_factory=list, description="List of currently enabled KernelPolicy names.")
     last_action_feedback: Optional[str] = Field(None, description="Feedback from the Auditor on the last attempted move.")
     decision_history: List[dict] = Field(default_factory=list, description="History of past moves and verdicts.")
 
@@ -50,7 +52,7 @@ class FrameworkState(BaseModel):
 
 class ManagerMove(BaseModel):
     thought_process: str = Field(..., min_length=10, description="Internal logic: what I see in L1 and what I need next.")
-    tool_call: Literal["stage_context", "unstage_context", "save_artifact", "delete_artifact", "stage_artifact", "edit_file", "write_file", "halt_and_ask", "verify_step", "calculate", "switch_strategy", "compare_files"]
+    tool_call: Literal["stage_context", "unstage_context", "save_artifact", "delete_artifact", "stage_artifact", "stage_multiple_artifacts", "query_sidecar", "edit_file", "write_file", "halt_and_ask", "verify_step", "calculate", "switch_strategy", "compare_files", "set_audit_policy"]
     # [CRITICAL FIX] Allow Optional to prevent validation crashes when model sends null
     target: Optional[str] = Field(default="", min_length=0, description="The argument for the tool. Use empty string if none.")
     policy_name: Optional[str] = Field(None, description="The name of the policy that triggered this move.")
@@ -83,11 +85,17 @@ TOOL DESCRIPTIONS:
 - unstage_context(path): Remove a FILE from Active Context.
 - save_artifact(key): Extract data from Active Context and save to persistent storage.
 - stage_artifact(key): Load a previously saved ARTIFACT back into Active Context.
+- stage_multiple_artifacts(keys): Chain multiple artifacts (space or comma separated) into L1 for aggregate reasoning.
+- query_sidecar(query): Search the persistent shared brain for offloaded artifacts or facts.
 - delete_artifact(key): Permanently remove an artifact.
 - edit_file(path: instr): Apply a surgical code patch.
 - write_file(path: content): Create a new file.
-- switch_strategy(persona): Change your operating mode.
-- halt_and_ask(result): Mission complete.
+- compare_files(file_a, file_b): Deep merge two files into a RESOLVED_CODE artifact.
+- switch_strategy(persona): Change your operating mode (e.g., 'Security Auditor').
+- set_audit_policy(name): Change verification strictness ('STRICT_AUDIT', 'FLUID_READ', 'HIGH_SPEED').
+- enable_policy(name): Enable a specific policy by name.
+- disable_policy(name): Disable a specific policy by name.
+- halt_and_ask(result): Mission complete. Provide the final answer here.
 
 [WORKSPACE STATE]
 ACTIVE CONTEXT (Files currently open): {l1_files}
@@ -155,12 +163,10 @@ WARNING: If you skip step 2, the data is LOST forever.
 ### STATE CONSISTENCY RULE ###
 - **PINNED PAGES**: You are FORBIDDEN from using 'unstage_context' on any page marked as '(PINNED: CANNOT UNSTAGE)'. These are critical system state.
 - **INFRASTRUCTURE TRUTH**: You are FORBIDDEN from using 'stage_context' on files that do not appear in the [ENVIRONMENT STRUCTURE] list above.
-- Before you act, check the 'Artifacts' list.
-- IF an artifact exists (e.g., 'X_value=38' or 'CONTRACT_ARTIFACT'), **DO NOT** try to read that file again or perform that task again. MOVE TO THE NEXT STEP IN THE MISSION.
-- **CONTRACT CHECK**: If you have a 'CONTRACT' artifact, compare it line-by-line with any code currently in L1. If the code does not match the mandatory shape or logic, you MUST use 'halt_and_ask' IMMEDIATELY with the reason 'CONTRACT VIOLATION: <details>'.
+- **SEQUENCE MEMORY**: If you just successfully used `edit_file` or `save_artifact`, DO NOT stage that file again to "verify" the change. TRUST the SUCCESS feedback. Move to the next file or the next step in the MISSION.
+- **LOOP ESCAPE**: If you receive a [SYSTEM ALERT] regarding a 'STALEMATE' or 'LOOP', you MUST change either your `tool_call` or your `target`. Repeating the same action is a system failure.
+- **BACKPACK PRIMACY**: **CRITICAL**: Before you act, check the 'Artifacts' (Backpack) list. If the data/artifact you need is ALREADY there, you are FORBIDDEN from saving it again. Move to the next missing item immediately.
 - **MISSION COMPLETE**: If you have all the required data or have performed all requested steps, you MUST save a 'TOTAL' artifact IMMEDIATELY. This is the only way to signal completion.
-- **GARBAGE COLLECTION**: If a file is no longer needed (e.g., refactored away or all data extracted), you MUST use 'unstage_context' IMMEDIATELY to free L1 space.
-- **MULTI-REPO PRECISION**: When using `edit_file` in multi-repo environments, you MUST specify the full path including the repo directory (e.g., 'nexus_app/service.py') to avoid ambiguity.
 - **THE VOID**: If L1 RAM is EMPTY and you have all required artifacts, you MUST use 'halt_and_ask' IMMEDIATELY. Do NOT try to stage files again.
 - IF you receive positive feedback (e.g., starts with 'SUCCESS'), **TRUST IT**. Do not verify what you just did; move to the next step immediately.
 - IF you used `compare_files`, a 'MERGED_' artifact is created. Use its content to `write_file`.
@@ -168,6 +174,7 @@ WARNING: If you skip step 2, the data is LOST forever.
 - FOCUS only on what is missing. If you have the contract, update the client.
 - **STOP LOOPING**: If your last action was rejected or you are repeating yourself, CHANGE STRATEGY immediately.
 - **NO REDUNDANCY**: Do not re-stage files you have already extracted data from. Check your 'Decision History' and 'Saved Artifacts' before every move.
+- **BATCH PROCESSING**: If you need to process multiple files, do not dwell. Stage -> Save -> Unstage -> Next File. Be decisive.
 - **ARTIFACT COMPARISON**: If the mission requires comparing two pieces of data that are BOTH already in 'The Backpack', compare them line-by-line in your thought process. DO NOT use 'verify_step' for logic/equality checks between artifacts. If they mismatch, use 'halt_and_ask' with 'VIOLATION: <reason>'.
 - **STRATEGY ADHERENCE**: If a 'strategy' is defined in your Framework State (e.g., 'CONTRACT VERIFIER'), you MUST prioritize those specific instructions over general defaults.
 

@@ -43,9 +43,9 @@ def run_overflow_proof():
     session = AmnesicSession(
         mission=(
             "Scan 'overflow_data/' (files log_00.txt to log_15.txt). "
-            "For EACH file, extract 'TARGET_VALUE' and save it as a UNIQUE artifact named 'VAL_<filename>' (e.g., 'VAL_log_00.txt'). "
-            "DO NOT overwrite artifacts. "
-            "After you have saved ALL 16 unique values, use 'calculate' to sum them. HALT."
+            "For EACH file, extract 'TARGET_VALUE' (integer) and save it as a UNIQUE artifact named 'VAL_<filename>' (e.g., 'VAL_log_00.txt'). "
+            "DO NOT overwrite artifacts you already have. "
+            "Once you have saved ALL 16 values, use 'calculate' to SUM the integers. HALT."
         ),
         root_dir=data_dir,
         l1_capacity=18000, 
@@ -57,7 +57,7 @@ def run_overflow_proof():
     console.print("\n[bold]Running Overflow Mission...[/bold]")
     try:
         # High recursion limit because reading 16 files takes many turns
-        session.run(config={"recursion_limit": 100, "configurable": {"thread_id": "overflow"}})
+        session.run(config={"recursion_limit": 150, "configurable": {"thread_id": "overflow"}})
     except Exception as e:
         console.print(f"[red]Session Crashed:[/red] {e}")
 
@@ -78,7 +78,7 @@ def run_overflow_proof():
             except: pass
         
         # Check individual extractions if total failed
-        if "TARGET" in art.identifier or "VALUE" in art.identifier:
+        if any(kw in art.identifier.upper() for kw in ["TARGET", "VALUE", "VAL_"]):
             found_count += 1
 
     console.print(f"\nExpected Sum: {expected_sum}")

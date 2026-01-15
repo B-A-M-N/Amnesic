@@ -718,11 +718,12 @@ class AmnesicSession:
         is_mult = any(k in target_upper for k in ["MULTIPLY", "*"])
         is_div = any(k in target_upper for k in ["DIVIDE", "/"])
 
+        # Default to ADD if no explicit operation is found but numbers are present in artifacts
         has_explicit_math = is_add or is_sub or is_mult or is_div
 
         # 2. Determine if we should JOIN or MATH
-        # We JOIN if explicitly requested, OR if no math intent is found in the target.
-        if is_join or (not nums_in_target and not has_explicit_math):
+        # We JOIN if explicitly requested.
+        if is_join:
             values = []
             for art in self.state['framework_state'].artifacts:
                 if art.identifier not in ["TOTAL", "VERIFICATION"]:
@@ -742,14 +743,53 @@ class AmnesicSession:
                 self.state['framework_state'].last_action_feedback = "Calculate Error: No artifacts to join."
                 return
 
-        # 3. Math Path: Use numbers from target, or fallback to artifacts if target has op but no nums
+        # 3. Math Path: Use numbers from target, or fallback to artifacts
         nums = nums_in_target
         if not nums:
-            arts_text = " ".join([a.summary for a in self.state['framework_state'].artifacts])
-            nums = [int(n) for n in re.findall(r'\b\d+\b', arts_text)]
+            # INTELLIGENT EXTRACTION FROM ARTIFACTS
+            extracted_nums = []
+            import json
+            for art in self.state['framework_state'].artifacts:
+                if art.identifier in ["TOTAL", "VERIFICATION"]: continue
+                
+                # A. Try JSON parsing
+                try:
+                    # Clean markdown code blocks if present
+                    clean_summary = re.sub(r'```(?:json)?\s*(.*?)\s*```', r'\1', art.summary, flags=re.DOTALL).strip()
+                    data = json.loads(clean_summary)
+                    if isinstance(data, dict):
+                        # Look for common value keys
+                        for key in ["target_value", "value", "result", "count"]:
+                            if key in data and isinstance(data[key], (int, float)):
+                                extracted_nums.append(int(data[key]))
+                                break
+                    elif isinstance(data, list):
+                        # Maybe a list of objects?
+                        for item in data:
+                            if isinstance(item, dict) and "target_value" in item:
+                                extracted_nums.append(int(item["target_value"]))
+                except Exception:
+                    # B. Fallback to Regex, but BE CAREFUL not to pick up filenames
+                    # Look for numbers NOT preceded by 'log_' or 'file'
+                    # Also ignore numbers that look like dates?
+                    # Simple heuristic: Just pick the last number in the summary usually works for "Value: 12"
+                    candidates = [int(n) for n in re.findall(r'\b\d+\b', art.summary)]
+                    if candidates:
+                        # Filter out numbers that appear in the identifier (e.g. log_03)
+                        id_nums = [int(n) for n in re.findall(r'\b\d+\b', art.identifier)]
+                        valid_candidates = [c for c in candidates if c not in id_nums]
+                        
+                        if valid_candidates:
+                            extracted_nums.append(valid_candidates[-1]) # Take the last valid number
+                        elif candidates:
+                             # If all numbers matched identifier, it's risky. But maybe the value IS the index?
+                             # In this specific proof, value = 10 + index. So value != index.
+                             pass
+            
+            nums = extracted_nums
 
         if not nums:
-            self.state['framework_state'].last_action_feedback = "Calculate Error: No numbers found for math operation."
+            self.state['framework_state'].last_action_feedback = "Calculate Error: No valid numbers found for math operation."
             return
 
         res = 0

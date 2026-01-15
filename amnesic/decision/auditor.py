@@ -8,16 +8,18 @@ import numpy as np
 
 from ..drivers.ollama import OllamaDriver
 from ..presets.code_agent import AUDITOR_SYSTEM_PROMPT, AuditorVerdict
+from ..core.audit_policies import AuditProfile, STRICT_AUDIT, FLUID_READ, HIGH_SPEED, PROFILE_MAP
 
 logger = logging.getLogger("amnesic.auditor")
 
 # --- 2. The Logic Engine ---
 class Auditor:
-    def __init__(self, goal: str, constraints: List[str], driver: OllamaDriver, elastic_mode: bool = False):
+    def __init__(self, goal: str, constraints: List[str], driver: OllamaDriver, elastic_mode: bool = False, audit_profile: AuditProfile = STRICT_AUDIT):
         self.goal = goal
         self.constraints = constraints
         self.driver = driver
         self.elastic_mode = elastic_mode
+        self.policy = audit_profile
         
         # Layer 1: Vector Model (Relevance)
         self.embedder = TextEmbedding(model_name="BAAI/bge-small-en-v1.5")
@@ -54,8 +56,22 @@ class Auditor:
 
         # --- LAYER -4: SEMANTIC HYGIENE ---
         if action_type == "save_artifact":
-             # Reject if target contains whitespace or looks like prose
-             if " " in target.strip() or len(target) > 64:
+             # Support "KEY: value" or "KEY=value" formats
+             clean_target = target.strip()
+             has_separator = ":" in clean_target or "=" in clean_target
+             
+             if has_separator:
+                 # Only validate the key part
+                 key_part = re.split(r'[:=]', clean_target)[0].strip()
+                 if " " in key_part or len(key_part) > 64:
+                      return {
+                          "auditor_verdict": "REJECT",
+                          "confidence_score": 1.0,
+                          "rationale": f"SEMANTIC POLLUTION: The key part '{key_part}' is not a valid symbolic identifier.",
+                          "correction": "Use SNAKE_CASE for the key before the colon."
+                      }
+             elif " " in clean_target or len(clean_target) > 64:
+                  # Original strict check for single-identifier mode
                   return {
                       "auditor_verdict": "REJECT",
                       "confidence_score": 1.0,
@@ -67,12 +83,13 @@ class Auditor:
         if action_type == "save_artifact":
             existing_art = next((a for a in current_artifacts if a.identifier == target), None)
             if existing_art:
-                # 1. IDEMPOTENCY: If they are saving exactly what they already have, let it pass (Avoid Loop)
+                # 1. IDEMPOTENCY: If they are saving exactly what they already have, REJECT IT to force progress
                 if existing_art.summary in manager_rationale or target in manager_rationale:
                     return {
-                        "auditor_verdict": "PASS",
+                        "auditor_verdict": "REJECT",
                         "confidence_score": 1.0,
-                        "rationale": f"Idempotent Save: You already have '{target}' in your Backpack. Proceeding."
+                        "rationale": f"STALEMATE: Artifact '{target}' is ALREADY saved in your Backpack. Do NOT save it again. Move to the next missing artifact or use 'unstage_context'.",
+                        "correction": "Check your Backpack list. Move to the next step."
                     }
 
                 # 2. SEMANTIC BRIDGING: Allow grounded correction
@@ -261,7 +278,8 @@ class Auditor:
                         return {
                             "auditor_verdict": "REJECT", 
                             "confidence_score": 1.0, 
-                            "rationale": f"STALEMATE: You already successfully performed {action_type}({target}). Move to the next step in your plan."
+                            "rationale": f"STALEMATE: You already successfully performed {action_type}({target}).",
+                            "correction": "Move to the next step in your mission plan. Do NOT repeat this action."
                         }
 
             # Recursive loop check (Last 3 turns)
@@ -280,7 +298,8 @@ class Auditor:
             if repeats >= 2 and not is_exempt:
                 return {
                     "auditor_verdict": "REJECT", "confidence_score": 1.0,
-                    "rationale": f"LOOP DETECTED: You've tried {action_type} on {target} repeatedly. Try something else."
+                    "rationale": f"LOOP DETECTED: You've tried {action_type} on {target} repeatedly.",
+                    "correction": "Try a different tool or target. Your current path is stuck."
                 }
 
         # --- LAYER 2: RELEVANCE & SECURITY ---
@@ -290,8 +309,21 @@ class Auditor:
         relevance_score = self._check_relevance(action_type, target, manager_rationale)
         threshold = 0.15 if action_type in ["save_artifact", "unstage_context", "calculate"] else 0.25
         
+        # Policy-Based Relevance Check: Some profiles are more forgiving
+        if self.policy.name == "FLUID_READ" and action_type in self.policy.fast_path_actions:
+             threshold = 0.10 # Lower bar for fluid reads
+
         if relevance_score < threshold: 
             return {"auditor_verdict": "REJECT", "confidence_score": 1.0, "rationale": f"Irrelevant action ({relevance_score:.2f})."}
+
+        # --- LAYER 2.5: FAST PATH (POLICY BYPASS) ---
+        if action_type in self.policy.fast_path_actions and action_type not in self.policy.strict_actions:
+            if relevance_score >= self.policy.relevance_threshold:
+                 return {
+                     "auditor_verdict": "PASS",
+                     "confidence_score": 1.0,
+                     "rationale": f"Fast-Path Approved: Heuristics pass (Score {relevance_score:.2f} > {self.policy.relevance_threshold})."
+                 }
 
         # --- LAYER 3: LLM JUDGE ---
         try:
@@ -351,7 +383,18 @@ def node_auditor(state):
     constraints = state.get('constraints', [])
     fw_state = state.get('framework_state')
     elastic_mode = getattr(fw_state, 'elastic_mode', False) if fw_state else False
-    auditor = Auditor(goal=goal, constraints=constraints, driver=_shared_driver, elastic_mode=elastic_mode)
+    
+    # Extract audit profile from state or default to STRICT
+    profile_name = getattr(fw_state, 'audit_profile_name', "STRICT_AUDIT")
+    audit_profile = PROFILE_MAP.get(profile_name, STRICT_AUDIT)
+    
+    auditor = Auditor(
+        goal=goal, 
+        constraints=constraints, 
+        driver=_shared_driver, 
+        elastic_mode=elastic_mode,
+        audit_profile=audit_profile
+    )
     
     pending_move = state.get('manager_decision', {})
     tool_call = pending_move.get('tool_call', 'None')
@@ -384,3 +427,7 @@ def node_auditor(state):
         "decision_history": state.get("decision_history", []) + [trace],
         "global_uncertainty": state.get("global_uncertainty", 0.0) + (0.15 if result["auditor_verdict"] != "PASS" else 0.0)
     }
+
+# Mock for safety if MagicMock isn't imported
+class MagicMock:
+    artifacts = []
