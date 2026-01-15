@@ -2,8 +2,30 @@ import logging
 from typing import Dict, Optional, TypedDict, List
 from pydantic import BaseModel
 from amnesic.tools.vector_store import VectorStore
+import tiktoken
 
 logger = logging.getLogger("amnesic.dynamic_pager")
+
+# Global Tokenizer Initialization
+try:
+    TOKENIZER = tiktoken.get_encoding("cl100k_base")
+except Exception as e:
+    logger.warning(f"Tiktoken failed to load cl100k_base: {e}. Falling back to heuristic.")
+    TOKENIZER = None
+
+def count_tokens(text: str) -> int:
+    """Accurate token counting using tiktoken (cl100k_base) with heuristic fallback."""
+    if not text:
+        return 0
+    if TOKENIZER:
+        try:
+            # Add 30% safety margin for tokenizer mismatches (e.g. Qwen vs cl100k)
+            # and to ensure ample headroom for system prompts.
+            return int(len(TOKENIZER.encode(text)) * 1.3)
+        except Exception:
+            pass
+    # Fallback: Conservative estimate (chars / 3.0)
+    return int(len(text) / 3.0)
 
 class DynamicPage(BaseModel):
     id: str
@@ -46,7 +68,7 @@ class DynamicPager:
 
     def _load_page(self, page_id: str, content: str, priority: int, pinned: bool):
         """Internal load helper."""
-        tokens = len(content) // 4
+        tokens = count_tokens(content)
         new_page = DynamicPage(
             id=page_id,
             content=content,
@@ -75,7 +97,7 @@ class DynamicPager:
             # REFRESH CONTENT if provided (Crucial for edit_file/write_file synchronization)
             if content:
                 page.content = content
-                page.tokens = len(content) // 4
+                page.tokens = count_tokens(content)
             return True
 
         # 2. L2 Hit (Promote)
@@ -87,13 +109,13 @@ class DynamicPager:
             # Update content if provided (refresh)
             if content:
                 page.content = content
-                page.tokens = len(content) // 4
+                page.tokens = count_tokens(content)
                 
             return self._promote_to_l1(page)
 
         # 3. New Page
         if content:
-            tokens = len(content) // 4
+            tokens = count_tokens(content)
             new_page = DynamicPage(
                 id=page_id,
                 content=content,
@@ -120,14 +142,14 @@ class DynamicPager:
         if page_id in self.l2_staging:
             page = self.l2_staging[page_id]
             page.content = content
-            page.tokens = len(content) // 4
+            page.tokens = count_tokens(content)
             page.priority = max(page.priority, priority)
             page.last_accessed = self.current_turn
             logger.info(f"Prefetch update for {page_id} in L2.")
             return
 
         # Load into L2
-        tokens = len(content) // 4
+        tokens = count_tokens(content)
         new_page = DynamicPage(
             id=page_id,
             content=content,
@@ -188,7 +210,7 @@ class DynamicPager:
                 page = DynamicPage(
                     id=doc_id,
                     content=doc["content"],
-                    tokens=len(doc["content"]) // 4,
+                    tokens=count_tokens(doc["content"]),
                     last_accessed=self.current_turn,
                     priority=3, # Lower priority for recalled items until verified
                     pinned=False

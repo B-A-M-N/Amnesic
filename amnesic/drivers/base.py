@@ -2,6 +2,12 @@ from abc import ABC, abstractmethod
 from typing import Dict, Any, Optional, List, Type, Callable
 from pydantic import BaseModel
 
+try:
+    import tiktoken
+    TOKENIZER = tiktoken.get_encoding("cl100k_base")
+except ImportError:
+    TOKENIZER = None
+
 class LLMDriver(ABC):
     """
     Abstract Base Class for LLM interactions.
@@ -12,8 +18,16 @@ class LLMDriver(ABC):
     def _update_token_usage(self, system_prompt: str, user_prompt: str) -> None:
         """
         Updates the token usage counter for the last request.
-        Uses a rough approximation of 4 characters per token.
+        Uses tiktoken if available, otherwise falls back to a rough approximation.
         """
+        if TOKENIZER:
+            try:
+                self.last_request_tokens = len(TOKENIZER.encode(system_prompt + user_prompt))
+                return
+            except Exception:
+                pass
+        
+        # Fallback
         total_chars = len(system_prompt) + len(user_prompt)
         self.last_request_tokens = total_chars // 4
 
@@ -49,4 +63,3 @@ class LLMDriver(ABC):
     def generate_raw(self, prompt: str, system_prompt: str) -> str:
         """Returns a simple string response from the LLM."""
         pass
-

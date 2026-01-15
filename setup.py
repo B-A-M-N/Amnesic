@@ -12,7 +12,8 @@ setup(
         "langchain-community",
         "fastembed",
         "numpy",
-        "rich"
+        "rich",
+        "tiktoken"
     ],
     python_requires=">=3.10",
 )
