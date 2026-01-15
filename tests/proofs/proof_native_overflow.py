@@ -38,8 +38,11 @@ def run_overflow_proof():
     console.print("[Done]")
 
     # 2. Initialize Session with Native-like Capacity
-    # 18,000 tokens for files. + 4000 overhead + 4096 reasoning = ~26,000 base usage.
-    # Massive buffer for history/artifacts to prevent 32k overflow.
+    # Using dynamic partitioning: 32k Total.
+    # L1 (Input) = 50% = 16384 tokens.
+    # Reasoning (Output) = 40% = 13107 tokens.
+    # Overhead = 10% = 3276 tokens.
+    # This provides MASSIVE reasoning space compared to the previous run.
     session = AmnesicSession(
         mission=(
             "Scan 'overflow_data/' (files log_00.txt to log_15.txt). "
@@ -48,7 +51,8 @@ def run_overflow_proof():
             "Once you have saved ALL 16 values, use 'calculate' to SUM the integers. HALT."
         ),
         root_dir=data_dir,
-        l1_capacity=18000, 
+        max_total_context=32768,
+        context_ratios={"input": 0.5, "output": 0.4, "overhead": 0.1},
         audit_profile="FLUID_READ", # Speed is essential here
         elastic_mode=True # Allow multiple files, forcing it to hit the limit
     )

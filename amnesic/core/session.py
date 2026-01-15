@@ -44,7 +44,9 @@ class AmnesicSession:
                  audit_profile: Union[str, AuditProfile] = "STRICT_AUDIT",
                  custom_audit_profiles: Dict[str, AuditProfile] = {},
                  recursion_limit: int = 25,
-                 reasoning_reservation: int = 4096):
+                 reasoning_reservation: int = 4096,
+                 max_total_context: Optional[int] = None,
+                 context_ratios: Dict[str, float] = {"input": 0.5, "output": 0.4, "overhead": 0.1}):
         
         self.mission = mission
         self.sandbox = sandbox
@@ -61,13 +63,21 @@ class AmnesicSession:
         self.console = Console()
         
         # HEAD ROOM CALCULATION:
-        # l1_capacity is the WORKING memory for User Data (Files).
-        # We need space for:
-        # 1. System Prompts + History + Structure (~4000 tokens)
-        # 2. Reasoning/Generation Output (reasoning_reservation)
-        # Total Window = l1_capacity + 4000 + reasoning_reservation
-        system_overhead = 4000
-        num_ctx = l1_capacity + system_overhead + reasoning_reservation
+        # If max_total_context is set, use dynamic ratios.
+        if max_total_context:
+            num_ctx = max_total_context
+            # Derive capacities from ratios
+            # Input (L1) = 50%
+            l1_capacity = int(max_total_context * context_ratios.get("input", 0.5))
+            # Output (Reasoning) = 40% (Used implicitly by setting num_ctx high enough above input)
+            reasoning_reservation = int(max_total_context * context_ratios.get("output", 0.4))
+            # Overhead = 10% (Implicit remainder)
+            
+            print(f"Dynamic Context: Max={num_ctx}, L1={l1_capacity}, Reasoning={reasoning_reservation}")
+        else:
+            # Legacy Build-up Mode
+            system_overhead = 4000
+            num_ctx = l1_capacity + system_overhead + reasoning_reservation
         
         driver_kwargs = {"num_ctx": num_ctx}
         if deterministic_seed is not None:
