@@ -12,12 +12,15 @@ from rich.syntax import Syntax
 sys.path.append(os.path.abspath(os.path.join(os.path.dirname(__file__), "../..")))
 
 from amnesic.presets.rosetta import RosettaSession
-from amnesic.presets.code_agent import Artifact
-
-console = Console()
+from amnesic.core.sidecar import SharedSidecar
 
 def run_rosetta_proof():
-    console.print(Panel(
+    console = Console()
+    
+    # Reset Sidecar for a clean start
+    SharedSidecar().reset()
+
+    console.print(Panel.fit(
         "[bold white]SCENARIO: Legacy Migration (Rosetta Stone)[/bold white]\n"
         "[dim]The Agent must translate 'Spaghetti Code' into 'Clean Code'[/dim]\n"
         "[dim]by strictly following a Schema Artifact, ignoring legacy patterns.[/dim]\n\n"
@@ -68,7 +71,7 @@ def calculate_net_pay(employee: Employee) -> float:
         "5. Halt."
     )
     
-    session = RosettaSession(mission=mission, l1_capacity=3000)
+    session = RosettaSession(mission=mission, l1_capacity=32768)
     
     # 3. Run
     console.print("\n[bold]2. Engaging Rosetta Agent...[/bold]")

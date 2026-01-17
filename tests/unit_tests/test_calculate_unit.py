@@ -15,7 +15,7 @@ class TestCalculateToolEdgeCases(unittest.TestCase):
     Avoids 'Island Hopping' or high-level mission state tests covered elsewhere.
     """
     def setUp(self):
-        self.session = AmnesicSession(model="dummy", l1_capacity=3000)
+        self.session = AmnesicSession(model="dummy", l1_capacity=32768)
         self.session.driver = MagicMock()
         self.session.state['framework_state'].artifacts = []
 
@@ -44,13 +44,12 @@ class TestCalculateToolEdgeCases(unittest.TestCase):
         self._assert_result(100, "MULTIPLY")
 
     def test_math_zero_division_safety(self):
-        """Verify division by zero produces an error artifact."""
+        """Verify division by zero produces an error feedback."""
         self.session._tool_calculate("10 / 0")
         artifacts = self.session.state['framework_state'].artifacts
         total_artifact = next((a for a in artifacts if a.identifier == "TOTAL"), None)
-        self.assertIsNotNone(total_artifact)
-        self.assertEqual(total_artifact.type, "error_log")
-        self.assertIn("Division by zero", total_artifact.summary)
+        self.assertIsNone(total_artifact)
+        self.assertIn("Division by zero", self.session.state['framework_state'].last_action_feedback)
 
     def test_math_multiple_operands(self):
         """Verify the tool sums numbers (default ADD) correctly."""

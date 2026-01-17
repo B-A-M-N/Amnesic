@@ -12,44 +12,46 @@ class Manager:
         self.elastic_mode = elastic_mode
         self.policies = sorted(policies, key=lambda p: p.priority, reverse=True)
 
-    def decide(self, state: FrameworkState, file_map: list, pager: Optional[Pager] = None, active_context: str = "", l2_list: list = [], stream_callback: Optional[Callable] = None, history_block: str = "", forbidden_tools: List[str] = []) -> ManagerMove:
+    def decide(self, state: FrameworkState, file_map: list, pager: Optional[Pager] = None, active_context: str = "", l2_list: list = [], stream_callback: Optional[Callable] = None, history_block: str = "", forbidden_tools: List[str] = [], feedback_override: str = None) -> ManagerMove:
         """
         The Brain: Deliberates on the next step.
         """
         # --- 0. POLICY ENGINE (Deterministic Override) ---
-        last_feedback = state.last_action_feedback or ""
+        user_files_staged = [f.replace("FILE:", "").strip() for f in pager.active_pages.keys() if "SYS:" not in f] if pager else []
+        last_feedback = feedback_override if feedback_override else (state.last_action_feedback or "")
+        
         for policy in self.policies:
-            if policy.condition(state):
-                # ANTI-LOOP: If this policy's name was in the last feedback as a rejection, skip it.
+            if hasattr(state, 'active_policy_names') and policy.name not in state.active_policy_names:
+                continue
+
+            if policy.condition(state, user_files_staged):
                 if f"[{policy.name}]" in last_feedback and "REJECTED" in last_feedback.upper():
                     continue
 
                 reaction = policy.reaction(state)
                 if reaction:
-                    # Inject policy name for loop detection
                     reaction.policy_name = policy.name
                     print(f"[{policy.name}] Policy Triggered -> {reaction.tool_call}")
                     return reaction
 
         # Define Elastic vs Strict Rules
         if self.elastic_mode:
-            amnesia_rule = "MODE: ELASTIC. You are allowed to stage multiple files simultaneously. Use 'unstage_context' only when necessary to free up tokens."
+            amnesia_rule = "MODE: ELASTIC. You are allowed to stage multiple files simultaneously."
             eviction_rule = "Memory pressure is handled automatically."
         else:
-            amnesia_rule = "MODE: STRICT AMNESIA (One-File Limit). You MUST finish with the current file (Save Artifact -> Unstage) BEFORE opening a new one."
+            amnesia_rule = "MODE: STRICT AMNESIA (One-File Limit). You MUST finish with the current file (Save Artifact -> Unstage) BEFORE opening a *different* file. If you plan to edit the current file next, keep it open."
             eviction_rule = "L1 IS FULL. To read a new file, you MUST unstage the current one first."
 
         # 1. Update MMU Clock
         if pager:
             pager.tick()
-            l1_view = pager.render_context()
-            l2_view = list(pager.swap_disk.keys())
+            active_content = pager.render_context()
+            l2_files = [f.replace("FILE:", "") for f in pager.swap_disk.keys()]
         else:
-            l1_view = active_context
-            l2_view = l2_list
+            active_content = active_context
+            l2_files = [f.replace("FILE:", "") for f in l2_list]
         
         # 2. Prepare Data for Builder
-        # MASK ENVIRONMENT IF RESTRICTED (Prevents hallucinating past disk state)
         effective_map = [] if forbidden_tools else file_map
         map_summary = ManagerPromptBuilder.format_map_summary(effective_map)
         
@@ -57,45 +59,25 @@ class Manager:
         if pager:
             for page in pager.active_pages.values():
                 name = page.id.replace("FILE:", "")
-                if page.pinned:
-                    name += " (PINNED: CANNOT UNSTAGE)"
+                if page.pinned: name += " (PINNED)"
                 l1_files.append(name)
         else:
             l1_files = [active_context] if active_context else []
 
-        l2_files = [f.replace("FILE:", "") for f in (l2_list if not pager else list(pager.swap_disk.keys()))]
-        
-        # Render ACTUAL content for the prompt
-        active_content = pager.render_context() if pager else active_context
-
-        # Format artifacts for prompt
-        found_artifacts = [f"{a.identifier}: {a.summary}" for a in state.artifacts]
+        found_artifacts = [f"{a.identifier}" for a in state.artifacts]
         artifacts_summary = ", ".join(found_artifacts) if found_artifacts else "None"
         
-        # CRITICAL: L1 OCCUPANCY WARNING
+        # L1 OCCUPANCY WARNING
         l1_warning = ""
         user_files_staged = [f.replace("FILE:", "").strip() for f in pager.active_pages.keys() if "SYS:" not in f] if pager else []
-        
         if user_files_staged:
-            l1_warning = f"""
-        [CRITICAL: L1 RAM IS OCCUPIED]
-        The user file {user_files_staged} is ALREADY OPEN. 
-        - DO NOT use 'stage_context' for this file.
-        - READ the content below in [CURRENT L1 CONTEXT CONTENT].
-        - IF you have not already saved its data, use 'save_artifact' NOW.
-        - IF you are finished with it, you MUST 'unstage_context' to free L1.
-        """
+            l1_warning = f"\n        [CRITICAL: L1 RAM IS OCCUPIED by {user_files_staged}]. Use 'unstage_context' before opening a DIFFERENT file."
         elif not l1_files or (len(l1_files) == 1 and "MISSION" in l1_files[0]):
              l1_warning = "\n        [NOTICE: L1 RAM IS EMPTY]. You must 'stage_context' a file to see data."
 
-        # Prepare critical feedback block
-        feedback_alert = ""
-        if state.last_action_feedback:
-            feedback_msg = state.last_action_feedback
-            if "LOOP DETECTED" in feedback_msg or "STALEMATE" in feedback_msg:
-                feedback_alert = f"\n\n[SYSTEM ALERT - URGENT]: YOU ARE LOOPING. The last action was REJECTED. DO NOT TRY IT AGAIN. {feedback_msg}\nCHANGE STRATEGY IMMEDIATELY."
-            else:
-                feedback_alert = f"\n\n[SYSTEM ALERT]: {feedback_msg}\n"
+        # Prepare feedback
+        actual_feedback = feedback_override if feedback_override else state.last_action_feedback
+        feedback_alert = f"\n\n[SYSTEM FEEDBACK]: {actual_feedback}\n" if actual_feedback else ""
 
         # 3. Construct Prompts
         system_prompt = ManagerPromptBuilder.build_system_prompt(
@@ -117,15 +99,15 @@ class Manager:
             feedback_alert=feedback_alert,
             map_summary=map_summary,
             history_block=history_block,
-            active_content=active_content
+            active_content=active_content,
+            forbidden_tools=forbidden_tools
         )
         
         try:
-            decision_model = self.driver.generate_structured_with_stream(
+            decision_model = self.driver.generate_structured(
                 user_prompt=user_prompt, 
                 schema=ManagerMove,
-                system_prompt=system_prompt,
-                stream_callback=stream_callback
+                system_prompt=system_prompt
             )
             return decision_model
             
@@ -164,7 +146,7 @@ def node_manager(state: dict):
             # so we just put everything in 'classes' for display purposes or handle it generically
             file_list.append({
                 'path': path, 
-                'classes': [{'name': i} for i in items], 
+                'classes': [{'name': i} for i in items],
                 'functions': []
             })
     else:

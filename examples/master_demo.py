@@ -36,7 +36,8 @@ def run_demo():
     session = AmnesicSession(
         mission=mission,
         root_dir=".",
-        l1_capacity=2000
+        l1_capacity=2000,
+        recursion_limit=50
     )
 
     # 3. Execute

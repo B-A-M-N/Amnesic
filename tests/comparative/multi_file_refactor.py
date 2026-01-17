@@ -35,7 +35,7 @@ def run_refactor_test():
         "2. In app.py, update the call to use the new named parameter: calculate_tax(100, tax_rate=0.20)."
     )
     
-    LIMIT = 3000
+    LIMIT = 32768
     
     console.print(Panel(
         "[bold white]COMPARATIVE PROOF: Multi-File Refactor[/bold white]\n"

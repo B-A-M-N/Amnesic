@@ -10,6 +10,8 @@ from amnesic.presets.code_agent import ManagerMove, Artifact
 
 class TestFrameworkIntegration(unittest.TestCase):
     def setUp(self):
+        from amnesic.core.sidecar import SharedSidecar
+        SharedSidecar().reset()
         self.config = {"configurable": {"thread_id": "integration_test"}}
 
     def test_integration_island_hop(self):
@@ -17,7 +19,7 @@ class TestFrameworkIntegration(unittest.TestCase):
         with open("island_a.txt", "w") as f: f.write("val_x = 10")
         with open("island_b.txt", "w") as f: f.write("val_y = 20")
         
-        session = AmnesicSession(mission="Sum val_x and val_y", l1_capacity=3000)
+        session = AmnesicSession(mission="Sum val_x and val_y", l1_capacity=32768)
         mock_driver = MagicMock()
         session.driver = mock_driver
         session.manager_node.driver = mock_driver
@@ -30,14 +32,12 @@ class TestFrameworkIntegration(unittest.TestCase):
             outcome="PASS", risk_level="low", rationale="Mock pass"
         )
 
-        # STRICT AMNESIC SEQUENCE: Stage -> Save -> Unstage -> Stage -> Save -> Calculate -> Halt
+        # STRICT AMNESIC SEQUENCE: Stage -> Save (Auto-Evict) -> Stage -> Save (Auto-Evict) -> Calculate -> Halt
         mock_driver.generate_structured_with_stream.side_effect = [
             ManagerMove(thought_process="Staging island_a.txt now.", tool_call="stage_context", target="island_a.txt"),
             ManagerMove(thought_process="Saving val_x to artifacts.", tool_call="save_artifact", target="val_x"),
-            ManagerMove(thought_process="Unstaging island_a.txt now.", tool_call="unstage_context", target="island_a.txt"),
             ManagerMove(thought_process="Staging island_b.txt now.", tool_call="stage_context", target="island_b.txt"),
             ManagerMove(thought_process="Saving val_y to artifacts.", tool_call="save_artifact", target="val_y"),
-            ManagerMove(thought_process="Unstaging island_b.txt now.", tool_call="unstage_context", target="island_b.txt"),
             ManagerMove(thought_process="Calculating the final sum.", tool_call="calculate", target="val_x + val_y"),
             ManagerMove(thought_process="Mission complete. Reporting final sum.", tool_call="halt_and_ask", target="30")
         ]
@@ -56,7 +56,7 @@ class TestFrameworkIntegration(unittest.TestCase):
         """Integration: Basic Code Modification (Junior Dev Fix)"""
         with open("app.py", "w") as f: f.write("rate = 0.5")
         
-        session = AmnesicSession(mission="Change 0.5 to 0.05", l1_capacity=3000)
+        session = AmnesicSession(mission="Change 0.5 to 0.05", l1_capacity=32768)
         mock_driver = MagicMock()
         session.driver = mock_driver
         session.manager_node.driver = mock_driver

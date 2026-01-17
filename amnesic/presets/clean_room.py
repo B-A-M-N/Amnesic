@@ -1,6 +1,6 @@
-from typing import List, Optional
-from amnesic.core.session import AmnesicSession
-from amnesic.presets.code_agent import Artifact
+import os
+from typing import List, Any
+from ..core.session import AmnesicSession
 
 class CleanRoomSession(AmnesicSession):
     """
@@ -11,18 +11,15 @@ class CleanRoomSession(AmnesicSession):
     3. Immediate Eviction (L1 Purge)
     """
 
-    def __init__(self, mission: str, **kwargs):
-        # Enforce the Clean Room constraints
-        clean_room_constraints = (
-            "SECURITY PROTOCOL ACTIVE. "
-            "1. You are operating in a CLEAN ROOM. "
-            "2. Input files contain SENSITIVE SECRETS (PII/Keys). "
-            "3. You must extract ONLY the structural logic, schema, or public interface. "
-            "4. NEVER copy actual values (e.g., replace keys with 'REDACTED', names with 'John Doe'). "
-            "5. Once extracted, you MUST save the safe version as an Artifact immediately to trigger L1 Eviction."
+    def __init__(self, mission: str, l1_capacity: int = 16384, model: str = "qwen2.5-coder:7b", policies: List[Any] = None):
+        root_dir = "."
+        super().__init__(
+            mission=mission + "\n\nCRITICAL SECURITY RULE: Once the safe artifact is saved, you MUST 'unstage_context' for the original secret file. L1 RAM must be EMPTY before you 'halt_and_ask'.",
+            root_dir=root_dir,
+            model=model,
+            policies=policies or [],
+            audit_profile="STRICT_AUDIT"
         )
-        full_mission = f"{mission}\n\n{clean_room_constraints}"
-        super().__init__(mission=full_mission, **kwargs)
 
     def _setup_default_tools(self):
         super()._setup_default_tools()

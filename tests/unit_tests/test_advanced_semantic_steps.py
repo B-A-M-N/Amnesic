@@ -10,7 +10,7 @@ from amnesic.presets.code_agent import FrameworkState, Artifact
 
 class TestAdvancedSemanticSteps(unittest.TestCase):
     def setUp(self):
-        self.session = AmnesicSession(mission="Advanced Test", l1_capacity=3000)
+        self.session = AmnesicSession(mission="Advanced Test", l1_capacity=32768)
         self.session.driver = MagicMock()
         self.session.manager_node.driver = self.session.driver
 
@@ -24,7 +24,7 @@ class TestAdvancedSemanticSteps(unittest.TestCase):
         ]
         
         # Execute
-        self.session._tool_calculate("execute_logic")
+        self.session._tool_calculate("SUBTRACT")
         
         # Verify
         arts = self.session.state['framework_state'].artifacts
@@ -42,7 +42,7 @@ class TestAdvancedSemanticSteps(unittest.TestCase):
         ]
         
         # Execute
-        self.session._tool_calculate("execute_logic")
+        self.session._tool_calculate("MULTIPLY")
         
         # Verify
         arts = self.session.state['framework_state'].artifacts

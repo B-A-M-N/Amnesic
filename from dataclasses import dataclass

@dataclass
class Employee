@@ -4,7 +4,8 @@ name: str
 
 
 def calculate_pay(employee: Employee) -> float:
-    gross_pay = employee.hourly_rate * employee.hours_worked
-    tax_rate = 0.20  # Example tax rate, not global
-    net_pay = gross_pay * (1 - tax_rate)
+    """Calculate the pay for an employee based on hours worked and hourly rate, applying the global tax rate."""
+    gross_pay = employee.hours_worked * employee.hourly_rate
+    net_pay = gross_pay - (gross_pay * 0.20)  # global tax rate
+    print(f"Pay for {employee.name} is {net_pay}")
     return net_pay

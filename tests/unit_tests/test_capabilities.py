@@ -11,7 +11,8 @@ from amnesic.presets.code_agent import Artifact
 
 class TestCapabilities(unittest.TestCase):
     def setUp(self):
-        self.session = AmnesicSession(mission="Cap Test", l1_capacity=3000)
+        SharedSidecar().reset()
+        self.session = AmnesicSession(mission="Cap Test", l1_capacity=32768)
         self.session.driver = MagicMock()
         self.session.manager_node.driver = self.session.driver
         # Mock Environment to avoid FS

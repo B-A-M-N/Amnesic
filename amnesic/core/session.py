@@ -18,7 +18,7 @@ from amnesic.decision.manager import Manager, ManagerMove
 from amnesic.decision.auditor import Auditor
 from amnesic.decision.worker import Worker
 from amnesic.core.tool_registry import ToolRegistry
-from amnesic.core.policies import KernelPolicy, DEFAULT_COMPLETION_POLICY, CRITICAL_ERROR_POLICY
+from amnesic.core.policies import KernelPolicy, DEFAULT_COMPLETION_POLICY, CRITICAL_ERROR_POLICY, PROGRESS_LOCK_POLICY, AUTO_HALT_POLICY, STAGNATION_BREAKER_POLICY, L1_VIOLATION_POLICY
 from amnesic.core.audit_policies import AuditProfile, STRICT_AUDIT, PROFILE_MAP
 from amnesic.presets.code_agent import FrameworkState, Artifact
 from amnesic.core.memory import compress_history
@@ -29,7 +29,7 @@ class AmnesicSession:
                  root_dir: Union[str, List[str]] = ".", 
                  model: str = "rnj-1:8b-cloud", 
                  provider: str = "ollama",
-                 l1_capacity: int = 3000,
+                 l1_capacity: int = 32768,
                  sidecar: Optional[SharedSidecar] = None,
                  deterministic_seed: int = None,
                  strategy: str = None,
@@ -44,11 +44,36 @@ class AmnesicSession:
                  audit_profile: Union[str, AuditProfile] = "STRICT_AUDIT",
                  custom_audit_profiles: Dict[str, AuditProfile] = {},
                  recursion_limit: int = 25,
-                 reasoning_reservation: int = 4096,
-                 max_total_context: Optional[int] = None,
-                 context_ratios: Dict[str, float] = {"input": 0.5, "output": 0.4, "overhead": 0.1}):
+                 max_total_context: int = 32768,
+                 context_mode: Literal["diligent", "creative", "balanced"] = "balanced",
+                 context_floors: Optional[Dict[str, int]] = None):
         
+        # 1. Resolve Context Floors (Minimum Guarantees)
+        # We care about FLOORS (Invariants), not CEILINGS (Intelligence).
+        if context_floors is None:
+            if context_mode == "diligent":
+                # High-reliability floors for technical missions
+                context_floors = {
+                    "reasoning": 8192,  # Guaranteed oxygen for thinking
+                    "output": 4096,     # Guaranteed space for complex tool calls
+                    "overhead": 4096    # System prompt + 10 turns of history
+                }
+            elif context_mode == "creative":
+                # Minimal floors for maximum synthesis/discovery
+                context_floors = {
+                    "reasoning": 1024,
+                    "output": 1024,
+                    "overhead": 2048
+                }
+            else: # balanced
+                context_floors = {
+                    "reasoning": 4096,
+                    "output": 2048,
+                    "overhead": 3072
+                }
+
         self.mission = mission
+        self.context_mode = context_mode
         self.sandbox = sandbox
         self.eviction_strategy = eviction_strategy
         self.forbidden_tools = forbidden_tools
@@ -62,24 +87,24 @@ class AmnesicSession:
         self.elastic_mode = elastic_mode
         self.console = Console()
         
-        # HEAD ROOM CALCULATION:
-        # If max_total_context is set, use dynamic ratios.
-        if max_total_context:
-            num_ctx = max_total_context
-            # Derive capacities from ratios
-            # Input (L1) = 50%
-            l1_capacity = int(max_total_context * context_ratios.get("input", 0.5))
-            # Output (Reasoning) = 40% (Used implicitly by setting num_ctx high enough above input)
-            reasoning_reservation = int(max_total_context * context_ratios.get("output", 0.4))
-            # Overhead = 10% (Implicit remainder)
-            
-            print(f"Dynamic Context: Max={num_ctx}, L1={l1_capacity}, Reasoning={reasoning_reservation}")
-        else:
-            # Legacy Build-up Mode
-            system_overhead = 4000
-            num_ctx = l1_capacity + system_overhead + reasoning_reservation
+        # 2. Calculate Elastic L1 Capacity
+        # L1 = Total Window - (Guaranteed Floors)
+        num_ctx = max_total_context
+        total_reserved = sum(context_floors.values())
         
-        driver_kwargs = {"num_ctx": num_ctx}
+        if total_reserved >= num_ctx:
+             # Safety fallback for small windows: shrink floors proportionally
+             scale = (num_ctx * 0.8) / total_reserved
+             context_floors = {k: int(v * scale) for k, v in context_floors.items()}
+             total_reserved = sum(context_floors.values())
+
+        effective_l1_capacity = num_ctx - total_reserved
+        effective_reasoning = context_floors["reasoning"]
+        
+        self.console.print(f"[dim]Kernel: Elastic Context (Mode={context_mode}, Max={num_ctx}, L1_Elastic={effective_l1_capacity}, Reasoning_Floor={effective_reasoning})[/dim]")
+        
+        # 3. Apply to Driver
+        driver_kwargs = {"num_ctx": 32768} # Force 32k for 8b model
         if deterministic_seed is not None:
             driver_kwargs["temperature"] = 0.0
             driver_kwargs["seed"] = deterministic_seed
@@ -90,12 +115,17 @@ class AmnesicSession:
         self.driver = get_driver(provider, model, api_key=api_key, base_url=base_url, **driver_kwargs)
         
         self.env = ExecutionEnvironment(root_dirs=self.root_dirs)
-        self.pager = DynamicPager(capacity_tokens=l1_capacity)
+        # Use the calculated Effective L1 Capacity
+        self.pager = DynamicPager(capacity_tokens=effective_l1_capacity)
+        self.max_total_context = max_total_context
+        self.context_floors = context_floors
+        self.initial_l1_capacity = effective_l1_capacity # NEW: Persistent cap for elasticity
+        
         self.comparator = Comparator(self.pager)
         self.pager.pin_page("SYS:MISSION", f"MISSION: {mission}")
         self.sidecar = sidecar or SharedSidecar(driver=self.driver)
         
-        defaults = [DEFAULT_COMPLETION_POLICY, CRITICAL_ERROR_POLICY] if use_default_policies else []
+        defaults = [DEFAULT_COMPLETION_POLICY, CRITICAL_ERROR_POLICY, PROGRESS_LOCK_POLICY, AUTO_HALT_POLICY, STAGNATION_BREAKER_POLICY, L1_VIOLATION_POLICY] if use_default_policies else []
         active_policies = defaults + policies
         active_policy_names = [p.name for p in active_policies]
         self.manager_node = Manager(self.driver, elastic_mode=elastic_mode, policies=active_policies)
@@ -117,20 +147,100 @@ class AmnesicSession:
             # Also register this object in the map if it's new
             self.profile_map[start_profile_name] = start_profile_obj
 
-        self.auditor_node = Auditor(goal=mission, constraints=["NO_DELETES"], driver=self.driver, elastic_mode=elastic_mode, audit_profile=start_profile_obj)
+        # 2. Add Auditor Node (Passing current pager state)
+        def auditor_node_wrapper(state):
+            # Inject current pager state into the auditor
+            state['active_pages'] = list(self.pager.active_pages.keys())
+            
+            # CRITICAL: Use the actual mission statement from session
+            goal = self.mission
+            constraints = state.get('constraints', [])
+            fw_state = state.get('framework_state')
+            elastic_mode = getattr(fw_state, 'elastic_mode', False) if fw_state else False
+            
+            profile_name = getattr(fw_state, 'audit_profile_name', "STRICT_AUDIT")
+            audit_profile = self.profile_map.get(profile_name, STRICT_AUDIT)
+            
+            auditor = Auditor(
+                goal=goal, 
+                constraints=constraints, 
+                driver=self.driver, 
+                elastic_mode=elastic_mode,
+                audit_profile=audit_profile,
+                context_mode=self.context_mode
+            )
+            
+            pending_move = state.get('manager_decision')
+            if not pending_move:
+                tool_call = "None"
+                target = "None"
+                rationale = "None"
+            else:
+                tool_call = pending_move.tool_call
+                target = pending_move.target
+                rationale = pending_move.thought_process if hasattr(pending_move, 'thought_process') else pending_move.rationale
+            
+            raw_map = state.get('active_file_map', {})
+            # Ensure valid_files are the full paths for the auditor
+            valid_files = [f['path'] for f in raw_map] if isinstance(raw_map, list) else []
+
+            result = auditor.evaluate_move(
+                action_type=tool_call, target=target, manager_rationale=rationale,
+                valid_files=valid_files, active_pages=state['active_pages'],
+                decision_history=state.get('decision_history', []),
+                current_artifacts=state.get('framework_state').artifacts,
+                active_context=state.get('current_context_window', "")
+            )
+            
+            print(f"         Auditor: {result['auditor_verdict']} ({result['rationale']})")
+            
+            fw_state = state.get('framework_state')
+            # Use the actual framework history for counting
+            turn = len(fw_state.decision_history) + 1
+            trace = {
+                "turn": turn,
+                "tool_call": f"{tool_call} {target}",
+                "target": target,
+                "rationale": rationale,
+                "auditor_verdict": result["auditor_verdict"],
+                "rationale": result["rationale"], 
+                "confidence_score": result["confidence_score"]
+            }
+            if result["auditor_verdict"] != "PASS" and result.get("correction"):
+                trace["rationale"] += f" [AUDITOR CORRECTION: {result['correction']}]"
+
+            # CRITICAL: Append to the nested framework state history
+            fw_state.decision_history.append(trace)
+
+            return {
+                "last_audit": result,
+                "framework_state": fw_state,
+                "last_node": "auditor",
+                "global_uncertainty": state.get("global_uncertainty", 0.0) + (0.15 if result["auditor_verdict"] != "PASS" else 0.0)
+            }
+
+        self.auditor_node = auditor_node_wrapper # Just for internal ref
         
         self.tools = ToolRegistry()
         self._setup_default_tools()
         
         self.checkpointer = MemorySaver()
         
+        # 4. INITIAL KNOWLEDGE SYNC (Hive Mind)
+        initial_artifacts = []
+        if self.sidecar:
+            shared = self.sidecar.get_all_knowledge()
+            for k, v in shared.items():
+                if k not in ["TOTAL", "VERIFICATION"]:
+                    initial_artifacts.append(Artifact(identifier=k, type="config", summary=str(v), status="verified_invariant"))
+
         self.state: AgentState = {
             "framework_state": FrameworkState(
                 task_intent=mission,
                 current_hypothesis="Initial Assessment",
                 hard_constraints=["Local Only"],
                 plan=[],
-                artifacts=[],
+                artifacts=initial_artifacts,
                 confidence_score=0.5,
                 unknowns=["Context Structure"],
                 strategy=strategy,
@@ -165,6 +275,75 @@ class AmnesicSession:
         for event in self.app.stream(self.state, config=cfg):
             pass
 
+    def recalculate_pager_capacity(self, state: dict):
+        """
+        Dynamically adjusts Pager capacity based on current history and prompt overhead.
+        Ensures 'Floors' (Guarantees) for Reasoning and Output are preserved,
+        while making the rest of the window available for Input (Pager).
+        """
+        from amnesic.core.dynamic_pager import count_tokens
+        from amnesic.decision.prompt_builder import ManagerPromptBuilder
+        
+        # 1. Estimate Overhead (System Prompt + User Prompt Structure + History)
+        # To do this accurately, we build a 'dummy' prompt with empty L1 content
+        fw_state = state.get('framework_state')
+        active_map = state.get('active_file_map', [])
+        
+        # Format artifacts for prompt
+        found_artifacts = [f"{a.identifier}: {a.summary}" for a in fw_state.artifacts]
+        artifacts_summary = ", ".join(found_artifacts) if found_artifacts else "None"
+        
+        # Estimate History Block - EXACTLY as it appears in the Manager
+        history = fw_state.decision_history
+        history_lines = [f"[TURN {i}] {h.get('tool_call', 'unknown')} | VERDICT: {h['auditor_verdict']}" for i, h in enumerate(history)]
+        from amnesic.core.memory import compress_history
+        # Manager uses max_turns=10 for history_block
+        history_block = "[DECISION HISTORY]\n" + compress_history(history_lines, max_turns=10)
+        
+        # Estimate structural prompts (with empty L1 content)
+        # L1_files list should be populated based on current pager state
+        l1_files_list = []
+        for page in self.pager.active_pages.values():
+            name = page.id.replace("FILE:", "")
+            if page.pinned: name += " (PINNED)"
+            l1_files_list.append(name)
+
+        dummy_system = ManagerPromptBuilder.build_system_prompt(
+            state=fw_state, l1_files=l1_files_list, l2_files=[],
+            artifacts_summary=artifacts_summary, feedback_alert="DUMMY_FEEDBACK",
+            amnesia_rule="DUMMY_RULE", eviction_rule="DUMMY_EVICTION"
+        )
+        dummy_user = ManagerPromptBuilder.build_user_prompt(
+            state=fw_state, artifacts_summary=artifacts_summary,
+            l1_files=l1_files_list, l1_warning="DUMMY_WARNING", feedback_alert="DUMMY_FEEDBACK",
+            map_summary="DUMMY_MAP", history_block=history_block,
+            active_content="" # KEY: Empty content to measure structural overhead
+        )
+        
+        overhead_tokens = count_tokens(dummy_system) + count_tokens(dummy_user)
+        
+        # 2. Apply Floors
+        reasoning_floor = self.context_floors.get("reasoning", 2048)
+        output_floor = self.context_floors.get("output", 1024)
+        
+        # In Creative mode, we allow 'Competition' (Lowering the bar for invariants)
+        if self.context_mode == "creative":
+             reasoning_floor = int(reasoning_floor * 0.5)
+             output_floor = int(output_floor * 0.5)
+        
+        reserved = overhead_tokens + reasoning_floor + output_floor
+        new_capacity = self.max_total_context - reserved
+        
+        # Ensure we don't exceed the initial effective capacity (respecting the user's l1_capacity parameter)
+        new_capacity = min(new_capacity, self.initial_l1_capacity)
+        
+        # Safety floor for the Pager itself (Allow very small budgets for testing)
+        new_capacity = max(new_capacity, 100)
+        
+        if abs(new_capacity - self.pager.capacity) > 10: # Only update if change is significant
+            print(f"         Kernel: Elastic Pager updated. Capacity: {self.pager.capacity} -> {new_capacity} (Overhead: {overhead_tokens})")
+            self.pager.capacity = new_capacity
+
     def _safe_path(self, path: str) -> str:
         target = os.path.abspath(path)
         is_safe = any(target.startswith(rd) for rd in self.root_dirs)
@@ -190,34 +369,42 @@ class AmnesicSession:
         except Exception: pass
 
     def query(self, question: str, config: dict = None) -> str:
+        """
+        Snapshot reasoning: Answers a specific question using ONLY the sidecar/backpack.
+        Does not advance the plan or use standard tools.
+        """
         cfg = config or {"configurable": {"thread_id": "default"}} 
         current_state = self.app.get_state(cfg).values or self.state
         fw_state = current_state.get('framework_state')
-        fw_state.current_hypothesis = f"QUERY: {question}"
         
+        # 1. Sync Sidecar Knowledge into artifacts for the query
         if self.sidecar:
             shared = self.sidecar.get_all_knowledge()
             for k, v in shared.items():
                 if not any(a.identifier == k for a in fw_state.artifacts):
                     fw_state.artifacts.append(Artifact(identifier=k, type="config", summary=str(v), status="verified_invariant"))
         
+        # 2. Build Query Context (Artifacts + Active RAM)
+        context_parts = []
+        for art in fw_state.artifacts:
+            context_parts.append(f"ARTIFACT {art.identifier}: {art.summary}")
+        
         active_content = self.pager.render_context()
-        query_instruction = (
-            f"[QUERY MODE: ANSWER FROM MEMORY ONLY]\n"
-            f"Question: {question}\n"
-            f"RULES:\n"
-            f"1. You are FORBIDDEN from using 'stage_context' or 'edit_file'.\n"
-            f"2. You MUST answer using ONLY the persistent artifacts listed in 'The Backpack'.\n"
-            f"3. If the answer is in your artifacts, state it. If not, say you don't know.\n"
-            f"4. Do NOT attempt to read the disk."
+        if active_content:
+            context_parts.append(f"ACTIVE L1 RAM:\n{active_content}")
+            
+        full_context = "\n\n".join(context_parts)
+        
+        # 3. Use Worker for direct answering
+        worker = Worker(self.driver)
+        task = f"Answer the following question using the provided context: {question}"
+        result = worker.execute_task(
+            task_description=task,
+            active_context=full_context,
+            constraints=["Answer from memory ONLY.", "Do NOT invent facts.", "If unknown, say so."]
         )
-        move = self.manager_node.decide(
-            state=fw_state, file_map=self.env.refresh_substrate(),
-            pager=self.pager, history_block=query_instruction,
-            active_context=active_content,
-            forbidden_tools=['stage_context', 'unstage_context', 'edit_file', 'write_file', 'compare_files', 'save_artifact', 'delete_artifact']
-        )
-        return move.thought_process
+        
+        return result.content.strip()
 
     def snapshot_state(self, label: str) -> str:
         if not hasattr(self, "_snapshots"): self._snapshots = {}
@@ -291,8 +478,11 @@ class AmnesicSession:
             self.state['framework_state'].last_action_feedback = f"Error: Invalid Audit Policy '{target}'. Valid options: {valid_keys}"
 
     def _tool_stage_multiple_artifacts(self, target: str):
-        """Chain multiple artifacts into L1. Target: 'key1, key2, key3'"""
-        keys = [k.strip() for k in target.replace(",", " ").split()]
+        """Chain multiple artifacts into L1. Target: 'key1, key2, key3' or ['key1', 'key2']"""
+        # Clean up list syntax if present
+        clean_target = target.strip("[]'\" ")
+        keys = [k.strip().strip("'\"") for k in clean_target.replace(",", " ").split() if k.strip()]
+        
         found_any = False
         for key in keys:
             found = next((a for a in self.state['framework_state'].artifacts if a.identifier == key), None)
@@ -379,6 +569,35 @@ class AmnesicSession:
         targets = [t.strip().strip("'" ).strip('"').strip('`') for t in target.replace(',', ' ').split()]
         for file_path in targets:
             try:
+                # SEQUENTIAL AUTO-SAVE GUARD (For Marathon efficiency)
+                # If we are staging step_N+1 while step_N is open, auto-save step_N
+                active_steps = [p for p in self.pager.active_pages.keys() if "FILE:step_" in p]
+                if active_steps and "step_" in file_path:
+                    for step_key in active_steps:
+                        step_name = step_key.replace("FILE:", "")
+                        # Only auto-save if not already in artifacts
+                        part_id = f"PART_{step_name.split('_')[1].split('.')[0]}"
+                        if not any(a.identifier == part_id for a in self.state['framework_state'].artifacts):
+                            # Force a quick surgical extraction of the word
+                            raw_content = self.pager.active_pages[step_key].content.strip()
+                            # Surgical: Take first line and extract value between quotes
+                            first_line = raw_content.split('\n')[0]
+                            match = re.search(r"'(.*?)'|\"(.*?)\"", first_line)
+                            content = match.group(1) or match.group(2) if match else first_line
+                            
+                            self.state['framework_state'].artifacts.append(
+                                Artifact(identifier=part_id, type="text_content", summary=content, status="verified_invariant")
+                            )
+                            if self.sidecar: self.sidecar.ingest_knowledge(part_id, content)
+                            print(f"         Kernel: Auto-Saved {part_id} before context swap.")
+
+                # CONTEXTUAL GREPPING SUPPORT
+                # Syntax: path/to/file.py?query=symbol_name
+                query = None
+                if "?" in file_path and "query=" in file_path:
+                    file_path, query_part = file_path.split("?", 1)
+                    query = query_part.replace("query=", "").strip()
+
                 l1_key = os.path.basename(file_path)
                 safe_target = self._safe_path(file_path)
                 content = None
@@ -389,6 +608,39 @@ class AmnesicSession:
                         content = f.read()
                 
                 if content is not None:
+                    # Apply contextual filter if query provided
+                    if query:
+                        # Use StructuralMapper to find the symbol
+                        fmap = self.env.mappers[0]._parse_file(safe_target, file_path)
+                        found_content = ""
+                        for cls in fmap.get('classes', []):
+                            if cls['name'] == query:
+                                lines = content.split('\n')
+                                found_content = '\n'.join(lines[cls['line_start']-1 : cls['line_end']])
+                                break
+                            for m in cls.get('methods', []):
+                                if m['name'] == query:
+                                    lines = content.split('\n')
+                                    found_content = '\n'.join(lines[m['line_start']-1 : m['line_end']])
+                                    break
+                        if not found_content:
+                            for func in fmap.get('functions', []):
+                                if func['name'] == query:
+                                    lines = content.split('\n')
+                                    found_content = '\n'.join(lines[func['line_start']-1 : func['line_end']])
+                                    break
+                        
+                        if found_content:
+                            content = found_content
+                            l1_key = f"{l1_key}[{query}]"
+                        else:
+                            self.state['framework_state'].last_action_feedback = f"Grepping Error: Symbol '{query}' not found in {file_path}."
+                            return
+
+                    if f"FILE:{l1_key}" in self.pager.active_pages:
+                        self.state['framework_state'].last_action_feedback = f"SUCCESS: {l1_key} is already staged."
+                        continue
+                        
                     if not self.pager.request_access(f"FILE:{l1_key}", content, priority=8): 
                         raise ValueError(f"L1 Full: Cannot stage {l1_key}")
                     self.state['framework_state'].last_action_feedback = f"SUCCESS: Staged {l1_key}"
@@ -397,14 +649,81 @@ class AmnesicSession:
             except Exception as e: 
                 self.state['framework_state'].last_action_feedback = f"ERROR: {str(e)}"
 
+    def _jit_deduplicate(self):
+        """Collapses semantically redundant artifacts in the Backpack."""
+        if not self.state['framework_state'].artifacts: return
+        
+        seen_values = {} # value -> original_id
+        to_delete = []
+        
+        for art in self.state['framework_state'].artifacts:
+            val = art.summary.strip()
+            if val in seen_values:
+                # Mark redundant for deletion
+                to_delete.append(art.identifier)
+                print(f"         Kernel: JIT De-duplication collapsed '{art.identifier}' into '{seen_values[val]}'")
+            else:
+                seen_values[val] = art.identifier
+        
+        if to_delete:
+            self.state['framework_state'].artifacts = [a for a in self.state['framework_state'].artifacts if a.identifier not in to_delete]
+            for ident in to_delete:
+                if self.sidecar: self.sidecar.delete_knowledge(ident)
+
     def _tool_unstage(self, target: str):
-        clean = target.strip("'" ).strip('"')
-        l1_key = os.path.basename(clean)
-        if f"FILE:{l1_key}" in self.pager.active_pages:
-            self.pager.evict_to_l2(f"FILE:{l1_key}")
-            self.state['framework_state'].last_action_feedback = f"Unstaged {l1_key}"
+        clean = target.strip("'" ).strip('"').strip('`')
+        
+        # FULL WIPE SUPPORT
+        if clean.upper() == "ALL":
+            count = len(self.pager.active_pages)
+            for key in list(self.pager.active_pages.keys()):
+                self.pager.evict_to_l2(key)
+            self.state['framework_state'].last_action_feedback = f"SUCCESS: All {count} pages unstaged from L1."
+            return
+
+        # Try full path first
+        l1_key = f"FILE:{clean}"
+        if l1_key in self.pager.active_pages:
+            self.pager.evict_to_l2(l1_key)
+            self.state['framework_state'].last_action_feedback = f"Unstaged {clean}"
+            return
+
+        # Try basename
+        basename = os.path.basename(clean)
+        l1_key = f"FILE:{basename}"
+        if l1_key in self.pager.active_pages:
+            self.pager.evict_to_l2(l1_key)
+            self.state['framework_state'].last_action_feedback = f"Unstaged {basename}"
+            return
+
+        # Try Artifact Namespace
+        l1_key = f"FILE:ARTIFACT:{clean}"
+        if l1_key in self.pager.active_pages:
+            self.pager.evict_to_l2(l1_key)
+            self.state['framework_state'].last_action_feedback = f"Unstaged Artifact {clean}"
+            return
+            
+        # IDEMPOTENCY: If not found, it means it's already unstaged.
+        # Report success so the model doesn't loop.
+        self.state['framework_state'].last_action_feedback = f"SUCCESS: {clean} is not in L1 RAM (already unstaged)."
 
     def _tool_worker_task(self, target: str):
+        # 1. BATCH SUPPORT
+        # If target contains multiple comma-separated artifacts, split and recurse
+        if "," in target and not target.startswith("http"):
+            parts = [p.strip() for p in target.split(",")]
+            # Only batch if they look like artifacts (not a single long string with a comma)
+            if all(":" in p or "=" in p for p in parts):
+                for p in parts:
+                    self._tool_worker_task(p)
+                return
+
+        # SEMANTIC PINNING SUPPORT
+        is_pinned = False
+        if target.startswith("PINNED_L1:"):
+            target = target.replace("PINNED_L1:", "", 1).strip()
+            is_pinned = True
+
         active_context = self.pager.render_context()
         worker = Worker(self.driver)
         
@@ -419,10 +738,12 @@ class AmnesicSession:
             identifier, extracted_summary = target.split("=", 1)
         
         # 1.1 SYMBOLIC NORMALIZATION
-        # Slugify the identifier to ensure it passes Auditor hygiene
+        # Slugify the identifier if it contains spaces or weird chars
         identifier = identifier.strip()
-        if " " in identifier:
+        if " " in identifier or not re.match(r"^[a-zA-Z0-9_.-]+$", identifier):
+             # Extract the first few words or just slugify
              identifier = re.sub(r'[^a-zA-Z0-9_.-]', '_', identifier).strip('_')
+             # Cap length to 64
              identifier = identifier[:64]
         
         # 2. Special handling for Mission Completion
@@ -431,40 +752,61 @@ class AmnesicSession:
             arts_context = "\n".join([f"{a.identifier}: {a.summary}" for a in self.state['framework_state'].artifacts])
             prompt = f"MISSION COMPLETION: Combine all discovered values and facts into a single final result. Requested format: {target}."
             result = worker.execute_task(prompt, active_context + "\n" + arts_context, ["Final result only.", "If it's a math mission, provide the final number."])
-            self.state['framework_state'].current_hypothesis = f"MISSION COMPLETE: {result.content}"
+            summary_to_save = result.content
+            self.state['framework_state'].current_hypothesis = f"MISSION COMPLETE: {summary_to_save}"
         else:
-            # If the model already provided the summary, use it. Otherwise, use the Worker.
-            if extracted_summary and len(extracted_summary.strip()) > 5:
-                # Trust the model's direct extraction if it's substantial
-                content = extracted_summary.strip()
+            # IMPROVED EXTRACTION: If the model provided the value (ID: VAL), use it.
+            if extracted_summary and len(extracted_summary.strip()) > 0:
+                summary_to_save = extracted_summary.strip()
             else:
                 # Use the Worker to distill from L1
                 worker_result = worker.execute_task(f"Extract {target}", active_context, ["Raw value only."])
-                content = worker_result.content
+                summary_to_save = worker_result.content
             
+            # SURGICAL CLEANUP for sequential parts
+            if identifier.startswith("PART_") and len(summary_to_save) > 50:
+                first_line = summary_to_save.split('\n')[0]
+                match = re.search(r"'(.*?)'|\"(.*?)\"", first_line)
+                if match:
+                    summary_to_save = match.group(1) or match.group(2)
+
             # Check if artifact already exists with exact same data to prevent loops
             existing = next((a for a in self.state['framework_state'].artifacts if a.identifier == identifier), None)
-            if self.elastic_mode and existing and existing.summary.strip() == content.strip():
-                self.state['framework_state'].last_action_feedback = f"Artifact {identifier} already contains this EXACT data. STOP SAVING IT. Use 'unstage_context' or move to the next file."
+            if self.elastic_mode and existing and existing.summary.strip() == summary_to_save.strip():
+                # SOFT IDEMPOTENCY: Tell the agent it succeeded so it moves on.
+                self.state['framework_state'].last_action_feedback = f"SUCCESS: Artifact {identifier} already up-to-date. Skipping write."
                 return
-            
-            # Use the parsed/distilled content
-            summary_to_save = content
 
         # 3. Save Artifact (Replacing existing with same identifier)
         self.state['framework_state'].artifacts = [a for a in self.state['framework_state'].artifacts if a.identifier != identifier]
-        new_artifact = Artifact(identifier=identifier, type="text_content", summary=summary_to_save if "summary_to_save" in locals() else result.content, status="verified_invariant")
+        new_artifact = Artifact(
+            identifier=identifier, 
+            type="text_content", 
+            summary=summary_to_save if "summary_to_save" in locals() else result.content, 
+            status="verified_invariant",
+            pinned=is_pinned
+        )
         self.state['framework_state'].artifacts.append(new_artifact)
+        
+        # Apply Pinning to Pager if requested
+        if is_pinned:
+            self.pager.pin_page(f"ARTIFACT:{identifier}", new_artifact.summary)
+            print(f"         Kernel: Semantically Pinned artifact '{identifier}' to L1 RAM.")
+
         if self.sidecar: 
             print(f"         Kernel: Offloading artifact '{identifier}' to persistent sidecar.")
             self.sidecar.ingest_knowledge(identifier, new_artifact.summary, type=new_artifact.type)
         
-        # Respect Eviction Strategy
-        if not self.elastic_mode and self.eviction_strategy == "on_save":
-            for fid in [p for p in self.pager.active_pages.keys() if "FILE:" in p]: 
-                self.pager.evict_to_l2(fid)
-        
-        self.state['framework_state'].last_action_feedback = f"Artifact {identifier} saved."
+        # Trigger JIT De-duplication
+        self._jit_deduplicate()
+
+        # Determine if mission is essentially complete (for simple extraction tasks)
+        is_simple_extract = "extract" in self.mission.lower() and "calculate" not in self.mission.lower()
+        completion_msg = ""
+        if is_simple_extract:
+            completion_msg = " MISSION DATA SAVED. You may now use 'halt_and_ask' to finish."
+
+        self.state['framework_state'].last_action_feedback = f"Artifact {identifier} saved.{completion_msg}"
 
     def _tool_write_file(self, target: str):
         path = content = ""
@@ -484,7 +826,7 @@ class AmnesicSession:
                 else: path = "output.py"
                 content = target
             else:
-                self.state['framework_state'].last_action_feedback = "Write Failed: Use 'path: content'"
+                self.state['framework_state'].last_action_feedback = "Write Failed: Missing content. Syntax: 'write_file(path: content)'. Example: 'write_file(data.txt: hello world)'"
                 return
         
         path = path.strip()
@@ -718,9 +1060,20 @@ class AmnesicSession:
         self.state['framework_state'].last_action_feedback = summary
 
     def _tool_calculate(self, target: str):
+        # GUARDRAIL: Prevent Code Injection/Hallucination
+        # If the target looks like a file modification command, redirect to edit_file
+        # This fixes a common loop where models think 'calculate' can 'calculate a new file state'
+        if any(k in target for k in ["MODIFY", "def ", "class ", "return ", "import "]) and "SUM_BACKPACK" not in target:
+             self.state['framework_state'].last_action_feedback = "Error: 'calculate' is for MATH operations only. To edit files, use 'edit_file(path: instruction)' or 'write_file(path: content)'."
+             return
+
         # 1. Extract numbers and intent from TARGET only
-        nums_in_target = [int(n) for n in re.findall(r'\b\d+\b', target)]
         target_upper = target.upper()
+        
+        # KEYWORD: SUM_BACKPACK forces the tool to ignore target numbers and use the Backpack
+        force_backpack = "SUM_BACKPACK" in target_upper
+        
+        nums_in_target = [] if force_backpack else [int(n) for n in re.findall(r'\b\d+\b', target)]
 
         is_join = any(k in target_upper for k in ["COMBINE", "JOIN", "CONCAT"])
         is_add = any(k in target_upper for k in ["ADD", "+"])
@@ -737,10 +1090,14 @@ class AmnesicSession:
             values = []
             for art in self.state['framework_state'].artifacts:
                 if art.identifier not in ["TOTAL", "VERIFICATION"]:
-                    values.append(art.summary.strip("'" ).strip('"'))
+                    # Clean up summaries for a clean report
+                    val = art.summary.strip().strip("'" ).strip('"')
+                    # Strip code block markers if joining for a report
+                    val = re.sub(r'```(?:python|json)?\s*(.*?)\s*```', r'\1', val, flags=re.DOTALL).strip()
+                    values.append(val)
 
             if values:
-                res_str = f"Final (JOIN): {' '.join(values)}"
+                res_str = f"Final (JOIN):\n" + "\n".join(values)
                 self.state['framework_state'].artifacts = [a for a in self.state['framework_state'].artifacts if a.identifier != "TOTAL"]
                 new_art = Artifact(identifier="TOTAL", type="result", summary=res_str, status="committed")
                 self.state['framework_state'].artifacts.append(new_art)
@@ -759,17 +1116,25 @@ class AmnesicSession:
             # INTELLIGENT EXTRACTION FROM ARTIFACTS
             extracted_nums = []
             import json
-            for art in self.state['framework_state'].artifacts:
-                if art.identifier in ["TOTAL", "VERIFICATION"]: continue
+            
+            # Combine local artifacts and Sidecar knowledge
+            all_data = {a.identifier: a.summary for a in self.state['framework_state'].artifacts}
+            if self.sidecar:
+                all_data.update(self.sidecar.get_all_knowledge())
+            
+            for ident, summary in all_data.items():
+                if ident in ["TOTAL", "VERIFICATION"]: continue
                 
                 # A. Try JSON parsing
                 try:
                     # Clean markdown code blocks if present
-                    clean_summary = re.sub(r'```(?:json)?\s*(.*?)\s*```', r'\1', art.summary, flags=re.DOTALL).strip()
+                    clean_summary = re.sub(r'```(?:json)?\s*(.*?)\s*```', r'\1', summary, flags=re.DOTALL).strip()
                     data = json.loads(clean_summary)
-                    if isinstance(data, dict):
+                    if isinstance(data, (int, float)):
+                        extracted_nums.append(int(data))
+                    elif isinstance(data, dict):
                         # Look for common value keys
-                        for key in ["target_value", "value", "result", "count"]:
+                        for key in ["target_value", "TARGET_VALUE", "value", "result", "count"]:
                             if key in data and isinstance(data[key], (int, float)):
                                 extracted_nums.append(int(data[key]))
                                 break
@@ -780,26 +1145,21 @@ class AmnesicSession:
                                 extracted_nums.append(int(item["target_value"]))
                 except Exception:
                     # B. Fallback to Regex, but BE CAREFUL not to pick up filenames
-                    # Look for numbers NOT preceded by 'log_' or 'file'
-                    # Also ignore numbers that look like dates?
-                    # Simple heuristic: Just pick the last number in the summary usually works for "Value: 12"
-                    candidates = [int(n) for n in re.findall(r'\b\d+\b', art.summary)]
+                    candidates = [int(n) for n in re.findall(r'\b\d+\b', summary)]
                     if candidates:
                         # Filter out numbers that appear in the identifier (e.g. log_03)
-                        id_nums = [int(n) for n in re.findall(r'\b\d+\b', art.identifier)]
+                        id_nums = [int(n) for n in re.findall(r'\b\d+\b', ident)]
+                        # Strict filtering: if a number is in the ID, it's likely metadata
                         valid_candidates = [c for c in candidates if c not in id_nums]
                         
                         if valid_candidates:
                             extracted_nums.append(valid_candidates[-1]) # Take the last valid number
-                        elif candidates:
-                             # If all numbers matched identifier, it's risky. But maybe the value IS the index?
-                             # In this specific proof, value = 10 + index. So value != index.
-                             pass
             
             nums = extracted_nums
+            print(f"DEBUG: Auto-Calculated nums from Backpack+Sidecar: {nums}")
 
         if not nums:
-            self.state['framework_state'].last_action_feedback = "Calculate Error: No valid numbers found for math operation."
+            self.state['framework_state'].last_action_feedback = "Calculate Error: No valid numbers found for math operation. Hint: Did you save the values as artifacts first? 'calculate' looks for numbers in your saved artifacts (the Backpack)."
             return
 
         res = 0

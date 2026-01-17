@@ -9,7 +9,7 @@ from rich.text import Text
 sys.path.append(os.path.abspath(os.path.join(os.path.dirname(__file__), "../../")))
 from amnesic.core.session import AmnesicSession
 
-noise = "NOISE_BUFFER " * 1200
+noise = "NOISE_BUFFER " * 15000
 
 def run_isolation_proof():
     console = Console()
@@ -32,7 +32,7 @@ def run_isolation_proof():
         "2. If it is 'ONLINE', save a 'TOTAL' artifact saying 'SUCCESS: Isolated'. "
         "3. If it is 'CRITICAL FAILURE', save a 'TOTAL' artifact saying 'FAIL: Contamination'."
     )
-    session = AmnesicSession(mission=mission, l1_capacity=3000)
+    session = AmnesicSession(mission=mission, l1_capacity=32768)
     config = {"configurable": {"thread_id": "proof_isolation"}, "recursion_limit": 100}
     
     # Visual Confirmation

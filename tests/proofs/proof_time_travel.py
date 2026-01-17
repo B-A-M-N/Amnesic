@@ -9,9 +9,13 @@ from rich.text import Text
 
 sys.path.append(os.path.abspath(os.path.join(os.path.dirname(__file__), "../../")))
 from amnesic.core.session import AmnesicSession
+from amnesic.core.sidecar import SharedSidecar
 
 def run_time_travel_proof():
     console = Console()
+    
+    # Reset Sidecar for a clean start
+    SharedSidecar().reset()
     
     # 1. Setup: The "Buggy" Reality
     with open("calc.py", "w") as f:
@@ -28,7 +32,7 @@ def run_time_travel_proof():
     ))
 
     # Initialize Session
-    session = AmnesicSession(mission="Read calc.py and EXTRACT the code logic into an artifact.", l1_capacity=3000, deterministic_seed=42)
+    session = AmnesicSession(mission="Read calc.py and EXTRACT the code logic into an artifact.", l1_capacity=32768, deterministic_seed=42)
     config = {"configurable": {"thread_id": "proof_time_travel"}, "recursion_limit": 100}
     
     # Visual Confirmation

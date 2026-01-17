@@ -38,30 +38,31 @@ def run_overflow_proof():
     console.print("[Done]")
 
     # 2. Initialize Session with Native-like Capacity
-    # Using dynamic partitioning: 32k Total.
-    # L1 (Input) = 50% = 16384 tokens.
-    # Reasoning (Output) = 40% = 13107 tokens.
-    # Overhead = 10% = 3276 tokens.
-    # This provides MASSIVE reasoning space compared to the previous run.
     session = AmnesicSession(
         mission=(
             "Scan 'overflow_data/' (files log_00.txt to log_15.txt). "
             "For EACH file, extract 'TARGET_VALUE' (integer) and save it as a UNIQUE artifact named 'VAL_<filename>' (e.g., 'VAL_log_00.txt'). "
             "DO NOT overwrite artifacts you already have. "
-            "Once you have saved ALL 16 values, use 'calculate' to SUM the integers. HALT."
+            "Once you have saved ALL 16 values, use 'calculate' with the target 'SUM_BACKPACK' to sum all integers in your artifacts. HALT."
         ),
         root_dir=data_dir,
         max_total_context=32768,
-        context_ratios={"input": 0.5, "output": 0.4, "overhead": 0.1},
+        context_mode="diligent",
         audit_profile="FLUID_READ", # Speed is essential here
-        elastic_mode=True # Allow multiple files, forcing it to hit the limit
+        elastic_mode=True, # Allow multiple files, forcing it to hit the limit
+        forbidden_tools=["calculate"] # Forbid calculate until artifacts are done
     )
+    
+    # 2.5 Clear Sidecar to avoid pollution from other tests
+    if session.sidecar:
+        session.sidecar.reset()
+        console.print("Sidecar Purged [Clean Slate]")
 
     # 3. Execution
     console.print("\n[bold]Running Overflow Mission...[/bold]")
     try:
-        # High recursion limit because reading 16 files takes many turns
-        session.run(config={"recursion_limit": 150, "configurable": {"thread_id": "overflow"}})
+        # 400 steps mandatory for success.
+        session.run(config={"recursion_limit": 400, "configurable": {"thread_id": "overflow"}})
     except Exception as e:
         console.print(f"[red]Session Crashed:[/red] {e}")
 

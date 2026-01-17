@@ -30,7 +30,7 @@ def run_contract_test():
         "First, read all 'noise_X.txt' files to understand the environment."
     )
     
-    LIMIT = 3000
+    LIMIT = 32768
     console.print(Panel(
         "[bold white]COMPARATIVE PROOF: Contract Enforcement[/bold white]\n"
         "Constraint: [bold red]NO GLOBAL VARIABLES[/bold red]\n"

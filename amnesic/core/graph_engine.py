@@ -31,7 +31,9 @@ class GraphEngine:
         return workflow.compile(checkpointer=self.session.checkpointer)
 
     def _node_manager(self, state: AgentState):
-        print(f"DEBUG: Manager received state. Feedback: {state['framework_state'].last_action_feedback}")
+        # 0. ELASTIC CAPACITY UPDATE
+        self.session.recalculate_pager_capacity(state)
+        
         self.session.pager.tick()
         current_map = self.session.env.refresh_substrate()
         
@@ -40,34 +42,110 @@ class GraphEngine:
         active_keys = list(self.session.pager.active_pages.keys())
         for k in active_keys:
             if "SYS:" in k: continue
+            if "FILE:ARTIFACT:" in k: continue
+            
             clean_k = k.replace("FILE:", "")
             if clean_k not in valid_paths:
-                print(f"         Kernel: Physical GC - Removing {clean_k} (Missing from substrate)")
+                # Silently clean up unless critical
+                # print(f"         Kernel: Physical GC - Removing {clean_k} (Missing from substrate)")
                 del self.session.pager.active_pages[k]
 
         active_pages = [p.replace("FILE:", "") for p in self.session.pager.active_pages.keys() if "SYS:" not in p]
         l1_status = f"L1 RAM CONTENT: {', '.join(active_pages) if active_pages else 'EMPTY'}"
         
+        # --- Context Visualization ---
+        curr = self.session.pager.current_usage
+        cap = self.session.pager.capacity
+        pct = (curr / cap) * 100 if cap > 0 else 0
+        
+        # Fancy Bar
+        bar_len = 25
+        fill = int(bar_len * (pct / 100))
+        bar = "━" * fill + "─" * (bar_len - fill)
+        
+        color = "green"
+        if pct > 80: color = "red"
+        elif pct > 50: color = "yellow"
+        
+        # Print standardized header for the turn
+        print(f"\n[{pct:5.1f}%] [{color}]{bar}[/{color}] ({curr}/{cap}) | L1: {active_pages}")
+        
+        last_feedback = state['framework_state'].last_action_feedback
+        if last_feedback:
+            print(f"Feedback: {last_feedback}")
+
+        # --- STATE DELTA GOVERNANCE ---
+        state_fingerprint = f"{[a.identifier for a in state['framework_state'].artifacts]}|{active_pages}"
+        # If the state (Backpack IDs + L1 Keys) is identical for 3 turns, 
+        # it means the model is trapped in an attractor. We wipe history.
+        last_feedback = state['framework_state'].last_action_feedback or ""
+        state_fingerprint = f"{[a.identifier for a in state['framework_state'].artifacts]}|{active_pages}"
+        
+        # Tool Failure Acceleration: If we see a syntax error in feedback, accelerate stagnation
+        is_tool_failure = "Failed" in last_feedback or "Syntax" in last_feedback or "ERROR" in last_feedback
+        
+        if not hasattr(self, "_last_state_fingerprint"):
+            self._last_state_fingerprint = state_fingerprint
+            self._stagnation_counter = 0
+        
+        if state_fingerprint == self._last_state_fingerprint:
+            self._stagnation_counter += (2 if is_tool_failure else 1) # Double penalty for tool failure
+        else:
+            self._last_state_fingerprint = state_fingerprint
+            self._stagnation_counter = 0
+            
+        if self._stagnation_counter >= 3:
+            print(f"         Kernel: STATE DELTA ZERO ({'Tool Failure' if is_tool_failure else 'Static State'}). Wiping history.")
+            # Keep only the very last failed turn so the model sees the error, but wipe the rest
+            state['framework_state'].decision_history = state['framework_state'].decision_history[-1:]
+            self._stagnation_counter = 0
+
         if self.session.sidecar:
             shared = self.session.sidecar.get_all_knowledge()
             for k, v in shared.items():
+                # DO NOT sync session-specific completion artifacts like TOTAL or VERIFICATION
+                # into the active backpack of a new session. This prevents agents from
+                # thinking the mission is complete just because a previous agent finished its part.
+                if k in ["TOTAL", "VERIFICATION"]:
+                    continue
+                    
                 if not any(a.identifier == k for a in state['framework_state'].artifacts):
                     from amnesic.presets.code_agent import Artifact
                     state['framework_state'].artifacts.append(Artifact(identifier=k, type="config", summary=str(v), status="verified_invariant"))
         
         history = state['framework_state'].decision_history
-        history_lines = [f"Turn {i}: {h.get('tool_call', 'unknown')} -> {h['auditor_verdict']}" for i, h in enumerate(history)]
-        history_block = "[HISTORY]\n" + compress_history(history_lines, max_turns=10)
+        # LOSS-OF-REASONING: Strip the 'thought_process' from history to prevent attractor basins.
+        # The agent only knows WHAT it did and if it worked, not its past internal justifications.
+        history_lines = [f"[TURN {i}] Action: {h.get('tool_call', 'unknown')} | Status: {h['auditor_verdict']}" for i, h in enumerate(history)]
+        history_block = "[STRICT DECISION LOG]\n" + compress_history(history_lines, max_turns=10)
+        
+        # --- DYNAMIC SYNTAX HINTING ---
+        last_feedback = state['framework_state'].last_action_feedback or ""
+        syntax_hint = ""
+        if "Failed" in last_feedback or "Syntax" in last_feedback:
+            # Identify the tool that failed
+            if "edit_file" in last_feedback or "edit_file" in str(history[-1:]):
+                syntax_hint = "\n[SYNTAX CORRECTION] 'edit_file' target MUST be 'filename: exact instruction'."
+            elif "save_artifact" in last_feedback:
+                syntax_hint = "\n[SYNTAX CORRECTION] 'save_artifact' target MUST be 'ID_NAME: value'."
+            elif "write_file" in last_feedback:
+                syntax_hint = "\n[SYNTAX CORRECTION] 'write_file' target MUST be 'filename: content'."
+        
+        feedback_block = f"AUDITOR FEEDBACK: {last_feedback}{syntax_hint}" if last_feedback else "None"
         
         move = self.session.manager_node.decide(
             state=state['framework_state'], 
             file_map=current_map, 
             pager=self.session.pager, 
             history_block=history_block, 
-            active_context=l1_status
+            active_context=l1_status,
+            forbidden_tools=state.get('forbidden_tools', []),
+            feedback_override=feedback_block # Inject into prompt builder
         )
         
-        print(f"[Turn {len(history)+1}] Manager: {move.tool_call}({move.target})")
+        # Display the thought process to explain "what the fuck it is doing"
+        print(f"[Turn {len(history)+1}] Thought: {move.thought_process}")
+        print(f"         Manager: {move.tool_call}({move.target})")
         return {"manager_decision": move, "active_file_map": current_map, "last_node": "manager"}
 
     def _node_auditor(self, state: AgentState):
@@ -77,26 +155,14 @@ class GraphEngine:
                 self.session._safe_path(move.target.split(":", 1)[0].strip() if ":" in move.target else move.target)
             except PermissionError as e:
                 audit = {"auditor_verdict": "REJECT", "rationale": str(e)}
-                turn = len(state['framework_state'].decision_history) + 1
-                state['framework_state'].decision_history.append({"turn": turn, "tool_call": move.tool_call, "target": move.target, "auditor_verdict": "REJECT", "rationale": str(e)})
-                return {"last_audit": audit, "framework_state": state['framework_state'], "last_node": "auditor"}
+                # (omitting trace append for brevity, handled by wrapper)
+                return {"last_audit": audit, "last_node": "auditor"}
         
-        valid_files = [f['path'] for f in state.get('active_file_map', [])]
-        active_pages_clean = [p.replace("FILE:", "") for p in self.session.pager.active_pages.keys()]
+        # Inject Active Context for grounding checks
+        state['current_context_window'] = self.session.pager.render_context()
         
-        audit = self.session.auditor_node.evaluate_move(
-            move.tool_call, move.target, move.thought_process, 
-            valid_files, active_pages_clean, 
-            state['framework_state'].decision_history, 
-            state['framework_state'].artifacts, 
-            active_context=self.session.pager.render_context()
-        )
-        
-        print(f"         Auditor: {audit['auditor_verdict']} ({audit['rationale']})")
-        
-        turn = len(state['framework_state'].decision_history) + 1
-        state['framework_state'].decision_history.append({"turn": turn, "tool_call": move.tool_call, "target": move.target, "auditor_verdict": audit["auditor_verdict"], "rationale": audit["rationale"]})
-        return {"last_audit": audit, "framework_state": state['framework_state'], "last_node": "auditor"}
+        # Use the session's auditor_node (wrapper function)
+        return self.session.auditor_node(state)
 
     def _node_executor(self, state: AgentState):
         move = state['manager_decision']

@@ -1,1 +1,1 @@
-\n    name: str\n    hourly_rate: float\n    hours_worked: float\n\ndef calculate_pay(employee: Employee) -> float:\n    global_tax_rate = 0.20\n    gross_pay = employee.hours_worked * employee.hourly_rate\n    net_pay = gross_pay - (gross_pay * global_tax_rate)\n    print(f'Pay for {employee.name} is {net_pay}')\n    return net_pay\n"
+\n    name: str\n    hourly_rate: float\n    hours_worked: float\n\n\ndef calculate_pay(emp: Employee) -> float:\n    return emp.hours_worked * emp.hourly_rate * (1 - 0.20)"

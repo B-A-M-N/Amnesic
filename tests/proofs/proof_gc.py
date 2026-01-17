@@ -9,9 +9,13 @@ from rich.text import Text
 
 sys.path.append(os.path.abspath(os.path.join(os.path.dirname(__file__), "../../")))
 from amnesic.core.session import AmnesicSession
+from amnesic.core.sidecar import SharedSidecar
 
 def run_gc_proof():
     console = Console()
+    
+    # Reset Sidecar for a clean start
+    SharedSidecar().reset()
     
     # 1. Setup: A dependency chain
     with open("main_logic.py", "w") as f:
@@ -36,7 +40,7 @@ def run_gc_proof():
         "3. Once main_logic.py is refactored, verify heavy_data.py is no longer needed. "
         "4. Unstage heavy_data.py and save a 'TOTAL' artifact saying 'GC_COMPLETE'."
     )
-    session = AmnesicSession(mission=mission, l1_capacity=3000, elastic_mode=True)
+    session = AmnesicSession(mission=mission, l1_capacity=32768, elastic_mode=True)
     config = {"configurable": {"thread_id": "proof_gc"}, "recursion_limit": 100}
     
     # Visual Confirmation

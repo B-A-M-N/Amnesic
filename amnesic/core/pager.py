@@ -19,7 +19,7 @@ class PagingStats(TypedDict):
     pages_swapped: int
 
 class Pager:
-    def __init__(self, capacity_tokens: int = 3000):
+    def __init__(self, capacity_tokens: int = 32768):
         """
         The MMU (Memory Management Unit).
         capacity_tokens: The Safe Limit (Total Context - Output Reserve - System Prompt)

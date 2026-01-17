@@ -15,17 +15,23 @@ except Exception as e:
 
 def count_tokens(text: str) -> int:
     """Accurate token counting using tiktoken (cl100k_base) with heuristic fallback."""
-    if not text:
+    if not text or len(text.strip()) == 0:
         return 0
+    res = 0
     if TOKENIZER:
         try:
-            # Add 30% safety margin for tokenizer mismatches (e.g. Qwen vs cl100k)
+            # Add 75% safety margin for tokenizer mismatches (e.g. Qwen vs cl100k)
             # and to ensure ample headroom for system prompts.
-            return int(len(TOKENIZER.encode(text)) * 1.3)
+            res = int(len(TOKENIZER.encode(text)) * 1.75)
         except Exception:
             pass
-    # Fallback: Conservative estimate (chars / 3.0)
-    return int(len(text) / 3.0)
+    
+    if res == 0:
+        # Fallback: Conservative estimate (chars / 3.0)
+        res = int(len(text) / 3.0)
+    
+    # Ensure at least 1 token if text exists and is not whitespace
+    return max(res, 1)
 
 class DynamicPage(BaseModel):
     id: str
@@ -34,6 +40,7 @@ class DynamicPage(BaseModel):
     last_accessed: int
     priority: int = 5  # 0-10, 10 is highest. 
     pinned: bool = False
+    ttl: int = 10
     
 class PagingStats(TypedDict):
     l1_used: int
@@ -43,7 +50,7 @@ class PagingStats(TypedDict):
     l3_count: int
 
 class DynamicPager:
-    def __init__(self, capacity_tokens: int = 3000, vector_store: Optional[VectorStore] = None):
+    def __init__(self, capacity_tokens: int = 32768, vector_store: Optional[VectorStore] = None):
         """
         Hierarchical Memory Management Unit.
         L1: Active Context (RAM, Token Limited)
@@ -59,8 +66,35 @@ class DynamicPager:
         self.current_turn = 0
 
     def tick(self):
-        """Advances the internal clock."""
+        """
+        Maintenance cycle: Enforces turn-based TTL and dynamic capacity limits.
+        Triggers 'Shifting' (Eviction to L2) if the workbench is saturated.
+        """
         self.current_turn += 1
+        for page_id in list(self.active_pages.keys()):
+            page = self.active_pages[page_id]
+            if page.pinned: continue # Pinned pages never die
+            
+            page.ttl -= 1
+            if page.ttl <= 0:
+                print(f"         Kernel: TTL Eviction - {page_id} shifting to L2.")
+                self.evict_to_l2(page_id)
+
+        # CAPACITY GOVERNANCE: Shift files to L2 if total usage > dynamic capacity
+        # This preserves the 'Reasoning Floor' Turn-by-Turn
+        current_usage = self.current_usage
+        if current_usage > self.capacity:
+            print(f"         Kernel: Workbench Saturated ({current_usage} > {self.capacity}). Shifting oldest evidence to L2...")
+            # Sort active pages by priority then last_used (LRU)
+            candidates = sorted(
+                [p for p in self.active_pages.values() if not p.pinned],
+                key=lambda x: (x.priority, x.last_accessed)
+            )
+            
+            while self.current_usage > self.capacity and candidates:
+                target = candidates.pop(0)
+                self.evict_to_l2(target.id)
+                print(f"         Kernel: Shifted {target.id} to L2.")
 
     def pin_page(self, page_id: str, content: str):
         """Loads a page that cannot be evicted."""
@@ -91,6 +125,7 @@ class DynamicPager:
         if page_id in self.l1_active:
             page = self.l1_active[page_id]
             page.last_accessed = self.current_turn
+            page.ttl = 10
             # Update priority if explicitly requested with higher
             if priority > page.priority:
                 page.priority = priority
@@ -104,6 +139,7 @@ class DynamicPager:
         if page_id in self.l2_staging:
             page = self.l2_staging.pop(page_id)
             page.last_accessed = self.current_turn
+            page.ttl = 10
             page.priority = max(page.priority, priority)
             
             # Update content if provided (refresh)

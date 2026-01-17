@@ -1,103 +1,38 @@
-import sys
+import time
 import os
-from typing import Literal
-from pydantic import BaseModel, Field, field_validator
+from amnesic.tools.ast_mapper import StructuralMapper
+from fastembed import TextEmbedding
 
-# Add project root to path
-sys.path.append(os.path.abspath(os.path.join(os.path.dirname(__file__), ".")))
-
-from amnesic.drivers.ollama import OllamaDriver
-
-# Schema for Worker (GenerationArtifact)
-class GenerationArtifact(BaseModel):
-    file_path: str = Field(default="extracted_value", description="The file being created or modified")
-    content: str = Field(..., description="The complete text or code content")
-    verification_notes: str = Field(default="Extraction complete", description="Self-check: Does this meet the constraints?")
-
-    @field_validator('content', mode='before')
-    def coerce_to_string(cls, v):
-        return str(v) if v is not None else ""
-
-def run_debug():
-    print("--- STARTING DEBUG SESSION (WORKER EFFICIENCY) --- ")
-    # Using the 8b model with small context
-    driver = OllamaDriver(model_name="rnj-1:8b-cloud", temperature=0.1, num_ctx=512)
-
-    # Context that causes failure in proof_extreme_efficiency.py
-    active_context = """
-v1.0.0
-v2.0.0
-v2.4.1 (DEPRECATED)
-v3.0.0
-"""
-    task_description = "Extract DEPRECATED_STATUS"
-    constraints = ["Raw value only."]
-
-    # Reconstruct the Worker prompt from worker.py
-    system_prompt = f"""
-    You are a STRUCTURAL ANALYST and Value Extractor.
+def profile_overhead():
+    print("--- Amnesic Kernel Overhead Profile ---")
     
-    Variable names in the context may be intentionally misleading (lying). 
-    (e.g., 'not_val_a' might actually hold 'val_a').
+    # 1. Profile Embedding
+    print("Testing Local Embedding (FastEmbed)...")
+    start = time.time()
+    embedder = TextEmbedding(model_name="BAAI/bge-small-en-v1.5")
+    print(f"  Embedder Load: {time.time() - start:.2f}s")
     
-    Recover the INTENT: find the primary numeric value in the file structure 
-    regardless of its label.
-    
-    YOUR CONSTRAINTS:
-    {chr(10).join(f"- {c}" for c in constraints)}
-    
-    INSTRUCTIONS:
-    1. Read the Context.
-    2. Find the requested data or value based on its role, not just its name.
-    3. Even if the task asks for a 'raw' value, you MUST return it as a valid JSON object matching the schema.
-    4. Place the extracted value in the 'content' field of the JSON.
-    5. Do not converse.
-    
-    CRITICAL: Do NOT write Python code to extract the value. YOU are the extractor. Read the text, find the value, and output the JSON.
-    """
+    start = time.time()
+    list(embedder.embed(["This is a test action to check relevance for the mission."]))
+    print(f"  Single Embedding Latency: {time.time() - start:.2f}s")
 
-    user_prompt = f"""
-    [CONTEXT BEGIN]
-    {active_context}
-    [CONTEXT END]
+    # 2. Profile AST Mapping
+    print("\nTesting AST Mapping (StructuralMapper)...")
+    # Simulate a directory with some files
+    rd = "."
+    mapper = StructuralMapper(root_dir=rd)
+    start = time.time()
+    repo_map = mapper.scan_repository()
+    print(f"  Scan Repository ({len(repo_map)} files): {time.time() - start:.2f}s")
 
-    TASK: {task_description}
-    
-    OUTPUT FORMAT: JSON ONLY.
-    You MUST use exactly these keys: "file_path", "content", "verification_notes".
-    {{
-        "file_path": "extracted_value",
-        "content": "<THE_VALUE>",
-        "verification_notes": "notes"
-    }}
-    
-    Generate the content now.
-    """
-
-    print("\n--- SENDING PROMPT TO MODEL ---")
-    
-    try:
-        # We use generate_structured directly (not stream) as the Worker does
-        print("\n--- RAW MODEL OUTPUT START ---")
-        
-        # We want to see raw output even if it fails validation
-        # Since I can't easily hook into generate_structured's internal logging without modifying it again,
-        # I'll use generate_raw with the same prompts.
-        
-        raw_output = driver.generate_raw(prompt=user_prompt, system_prompt=system_prompt)
-        print(raw_output)
-        print("\n--- RAW MODEL OUTPUT END ---")
-        
-        # Now try to parse it using our extraction logic manually to see why it fails
-        print("\n--- ATTEMPTING EXTRACTION ---")
-        extracted = driver._extract_json_block(raw_output, GenerationArtifact)
-        if extracted:
-            print(f"SUCCESS: {extracted}")
-        else:
-            print("FAILURE: Could not extract JSON.")
-            
-    except Exception as e:
-        print(f"\n\nERROR: {e}")
+    # 3. Profile Token Counting
+    import tiktoken
+    print("\nTesting Token Counting (tiktoken)...")
+    enc = tiktoken.get_encoding("cl100k_base")
+    heavy_text = "This is some hex noise. " * 1000
+    start = time.time()
+    enc.encode(heavy_text)
+    print(f"  Tokenizing 10k chars: {time.time() - start:.4f}s")
 
 if __name__ == "__main__":
-    run_debug()
+    profile_overhead()

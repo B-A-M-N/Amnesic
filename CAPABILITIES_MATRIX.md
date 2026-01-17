@@ -155,6 +155,15 @@ These capabilities represent the architectural benefits of the system.
 *   **Status:** ✅ **VERIFIED**
 *   **Proof:** `tests/proofs/proof_human_friction.py`
 
+### 18. Deterministic Phase Transitions
+*   **Claim:** The framework supports automatic, state-driven context reconstruction, allowing workflows to "warm start" a new mission phase by pulling specific artifacts into L1 RAM.
+*   **The Test:** "Warm Start Test."
+    1. Create specific artifacts in the Sidecar.
+    2. Spawn a new phase with a Linker Policy.
+    3. Verify the agent starts with the required artifacts already in Active Context (L1).
+*   **Status:** ✅ **VERIFIED**
+*   **Proof:** `tests/proofs/proof_context_offloading.py`
+
 ---
 
 ## Phase 3: Systemic Hardening (Security)

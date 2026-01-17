@@ -9,10 +9,14 @@ from rich.text import Text
 # Ensure framework access
 sys.path.append(os.path.abspath(os.path.join(os.path.dirname(__file__), "../../")))
 from amnesic.core.session import AmnesicSession
+from amnesic.core.sidecar import SharedSidecar
 from tests.proofs.test_policies import PROOF_COMPLETION_POLICY, SAFETY_NET_POLICY
 
 def run_model_invariance_proof():
     console = Console()
+    
+    # Reset Sidecar for a clean start
+    SharedSidecar().reset()
     
     # 1. Setup mission-critical environment
     val_x, val_y = 42, 58
@@ -68,7 +72,7 @@ def run_model_invariance_proof():
                 "3. Combine val_x and val_y into a 'TOTAL' sum result and HALT."
             ),
             model=model_name,
-            l1_capacity=3000,
+            l1_capacity=32768,
             policies=[PROOF_COMPLETION_POLICY, SAFETY_NET_POLICY]
         )
         

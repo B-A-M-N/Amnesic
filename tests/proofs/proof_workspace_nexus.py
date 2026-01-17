@@ -10,9 +10,13 @@ from rich.rule import Rule
 # Ensure framework access
 sys.path.append(os.path.abspath(os.path.join(os.path.dirname(__file__), "../../")))
 from amnesic.core.session import AmnesicSession
+from amnesic.core.sidecar import SharedSidecar
 
-def run_workspace_nexus_proof():
+def run_nexus_proof():
     console = Console()
+    
+    # Reset Sidecar for a clean start
+    SharedSidecar().reset()
     
     # 1. Setup: Two distinct repository roots
     repo_lib = os.path.abspath("./nexus_lib")
@@ -54,7 +58,7 @@ def run_workspace_nexus_proof():
     session = AmnesicSession(
         mission=mission, 
         root_dir=[repo_lib, repo_app], 
-        l1_capacity=3000
+        l1_capacity=32768
     )
     config = {"configurable": {"thread_id": "proof_nexus"}, "recursion_limit": 100}
     
@@ -138,4 +142,4 @@ def run_workspace_nexus_proof():
         if os.path.exists(d): shutil.rmtree(d)
 
 if __name__ == "__main__":
-    run_workspace_nexus_proof()
+    run_nexus_proof()

@@ -40,9 +40,9 @@ def run_failure_taxonomy_proof():
         console.print(Rule(style="dim"))
 
     with open("massive_data.py", "w") as f:
-        f.write("# NOISE " * 10000) # Exceeds 8000 tokens
+        f.write("# NOISE " * 40000) # Exceeds 32768 tokens
     
-    session = AmnesicSession(mission="Read massive_data.py", l1_capacity=3000)
+    session = AmnesicSession(mission="Read massive_data.py", l1_capacity=32768)
     
     # --- Mode 1: Deadlock (Physical Limit) ---
     # REPAIR: We must route this through the actual tool execution logic, 
@@ -67,15 +67,15 @@ def run_failure_taxonomy_proof():
         # We need to check if it reported failure correctly.
         feedback = session.state['framework_state'].last_action_feedback
         if feedback and ("L1 Full" in feedback or "NOT FOUND" not in feedback): # NOT FOUND would be a different error
-             print_trace_row(("STAGE_REQ", "massive_data", "10000/1500", "REJECTED (Correct)", Text("SAFE", style="green")))
+             print_trace_row(("STAGE_REQ", "massive_data", "40000/32768", "REJECTED (Correct)", Text("SAFE", style="green")))
              console.print(Panel("[bold green]SUCCESS: Pager correctly rejected oversized file (Deadlock Prevention).[/bold green]"))
         else:
-             print_trace_row(("STAGE_REQ", "massive_data", "10000/1500", "ACCEPTED (Fail)", Text("UNSAFE", style="red")))
+             print_trace_row(("STAGE_REQ", "massive_data", "40000/32768", "ACCEPTED (Fail)", Text("UNSAFE", style="red")))
              console.print(Panel(f"[bold red]FAIL: System accepted oversized file! Feedback: {feedback}[/bold red]"))
         
     except Exception as e:
         # The tool itself should raise the ValueError when it tries to load into Pager
-        print_trace_row(("STAGE_REQ", "massive_data", "10000/1500", "REJECTED (Correct)", Text("SAFE", style="green")))
+        print_trace_row(("STAGE_REQ", "massive_data", "40000/32768", "REJECTED (Correct)", Text("SAFE", style="green")))
         if "exceeds" in str(e) or "Capacity" in str(e) or "L1 Full" in str(e):
              console.print(Panel("[bold green]SUCCESS: Pager correctly rejected oversized file (Deadlock Prevention).[/bold green]"))
         else:
@@ -90,10 +90,10 @@ def run_failure_taxonomy_proof():
     console.print(header)
     console.print(Rule(style="dim"))
 
-    session_t = AmnesicSession(mission="Swap between A and B", l1_capacity=500)
-    # 300 tokens each -> 600 total > 500 capacity.
-    content_a = "val_a = 1" + (" # NOISE" * 150)
-    content_b = "val_b = 2" + (" # NOISE" * 150)
+    session_t = AmnesicSession(mission="Swap between A and B", l1_capacity=1000, max_total_context=1000)
+    # 600 tokens each -> 1200 total > 1000 capacity.
+    content_a = "val_a = 1" + (" # NOISE" * 300)
+    content_b = "val_b = 2" + (" # NOISE" * 300)
     
     with open("file_a.py", "w") as f: f.write(content_a)
     with open("file_b.py", "w") as f: f.write(content_b)

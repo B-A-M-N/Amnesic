@@ -5,7 +5,7 @@ sys.path.append(os.path.abspath(os.path.join(os.path.dirname(__file__), "../../"
 from amnesic.core.policies import KernelPolicy
 from amnesic.presets.code_agent import FrameworkState, ManagerMove
 
-def _check_total_artifact(state: FrameworkState) -> bool:
+def _check_total_artifact(state: FrameworkState, active_pages: list) -> bool:
     """Trigger: When 'TOTAL' artifact exists."""
     return any(a.identifier == "TOTAL" for a in state.artifacts)
 
@@ -26,7 +26,7 @@ PROOF_COMPLETION_POLICY = KernelPolicy(
     priority=10
 )
 
-def _check_deadlock(state: FrameworkState) -> bool:
+def _check_deadlock(state: FrameworkState, active_pages: list) -> bool:
     """Trigger: If turn count exceeds 20 (Safety)."""
     return len(state.decision_history) > 20
 

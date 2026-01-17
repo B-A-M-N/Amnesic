@@ -18,7 +18,7 @@ def main():
     # 1. Define the Comparison Matrix
     comparison = """# Amnesic Protocol: Empirical Benchmark (v1.0)
 
-This benchmark compares the **Amnesic Protocol** against a standard **ReAct (Sliding Window)** agent using an identical 8B model and 1200-token context limit.
+This benchmark compares the **Amnesic Protocol** against a standard **ReAct (Sliding Window)** agent using an identical 8B model and 32768-token context limit.
 
 ## 1. Summary Matrix
 

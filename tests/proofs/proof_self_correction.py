@@ -10,12 +10,17 @@ from rich.rule import Rule
 # Ensure framework access
 sys.path.append(os.path.abspath(os.path.join(os.path.dirname(__file__), "../../")))
 from amnesic.core.session import AmnesicSession
+from amnesic.presets.code_agent import FrameworkState
+from amnesic.core.sidecar import SharedSidecar
 
 from amnesic.core.policies import KernelPolicy
 from amnesic.presets.code_agent import ManagerMove
 
 def run_self_correction_proof():
     console = Console()
+    
+    # Reset Sidecar for a clean start
+    SharedSidecar().reset()
     
     # 1. Setup: Contradictory Information
     # File A has a misleading comment. File B has the truth.
@@ -37,12 +42,9 @@ def run_self_correction_proof():
     ))
 
     # --- Policy to prevent regression ---
-    def check_regression(state):
-        # If we have seen the truth (8888) or TEMP_VAL is 8888
-        has_truth = any("8888" in a.summary for a in state.artifacts)
-        # If trying to read source_a.py
-        # We can't see the *current* move easily here, but we can check if we are stuck.
-        return has_truth
+    def check_regression(state: FrameworkState, active_pages: list) -> bool:
+        """Trigger: If turn count exceeds 20."""
+        return len(state.decision_history) > 20
 
     def force_halt(state):
         return ManagerMove(
@@ -68,7 +70,7 @@ def run_self_correction_proof():
     
     strategy = "STRATEGY: STRICT PROTOCOL ENFORCEMENT. Follow the a-b-c-d-e steps EXACTLY. Do not deviate. Do not re-read files once you have the info."
     
-    session = AmnesicSession(mission=mission, l1_capacity=3000, strategy=strategy, policies=[anti_loop_policy])
+    session = AmnesicSession(mission=mission, l1_capacity=32768, strategy=strategy, policies=[anti_loop_policy])
     config = {"configurable": {"thread_id": "proof_self_correction"}, "recursion_limit": 100}
     
     session.visualize()

@@ -1,6 +1,8 @@
 import math
 import logging
 from typing import List, Dict, TypedDict, Tuple
+from fastembed import TextEmbedding
+import numpy as np
 
 logger = logging.getLogger("amnesic.vector")
 
@@ -12,8 +14,9 @@ class VectorDoc(TypedDict):
 
 class VectorStore:
     def __init__(self, driver=None, embedding_fn=None):
-        self.driver = driver
-        self.embedding_fn = embedding_fn if embedding_fn else (lambda x: driver.embed(x) if driver else [])
+        # We now ignore the driver for embeddings and use fastembed directly
+        self.embedder = TextEmbedding(model_name="BAAI/bge-small-en-v1.5")
+        
         # Storage: {"code": {doc_id: VectorDoc}, "text": {doc_id: VectorDoc}}
         self.collections: Dict[str, Dict[str, VectorDoc]] = {
             "code": {},
@@ -26,13 +29,13 @@ class VectorStore:
             self.collections[collection_name] = {}
             
         # Optimization: In a real DB, we'd check hash/timestamp before re-embedding
-        embedding = self.driver.embed(content)
-        if embedding:
+        embeddings = list(self.embedder.embed([content]))
+        if embeddings:
             self.collections[collection_name][doc_id] = {
                 "id": doc_id,
                 "content": content,
                 "metadata": metadata or {},
-                "embedding": embedding
+                "embedding": embeddings[0].tolist()
             }
 
     def search(self, query: str, collection_name: str = "text", top_k: int = 3) -> List[Tuple[str, float]]:
@@ -43,33 +46,32 @@ class VectorStore:
         if collection_name not in self.collections:
             return []
 
-        query_vec = self.driver.embed(query)
-        if not query_vec:
+        query_vecs = list(self.embedder.embed([query]))
+        if not query_vecs:
             return []
+        
+        query_vec = query_vecs[0]
 
         results = []
         target_collection = self.collections[collection_name]
         
         for doc_id, doc in target_collection.items():
-            score = self._cosine_similarity(query_vec, doc["embedding"])
+            score = self._cosine_similarity(query_vec, np.array(doc["embedding"]))
             results.append((doc_id, score))
 
         # Sort by score descending
         results.sort(key=lambda x: x[1], reverse=True)
         return results[:top_k]
 
-    def _cosine_similarity(self, vec1: List[float], vec2: List[float]) -> float:
+    def _cosine_similarity(self, vec1: np.ndarray, vec2: np.ndarray) -> float:
         """
-        Manual cosine similarity to avoid numpy dependency.
+        Cosine similarity using numpy for efficiency.
         """
-        if len(vec1) != len(vec2):
-            return 0.0
+        dot_product = np.dot(vec1, vec2)
+        norm1 = np.linalg.norm(vec1)
+        norm2 = np.linalg.norm(vec2)
         
-        dot_product = sum(a * b for a, b in zip(vec1, vec2))
-        magnitude1 = math.sqrt(sum(a * a for a in vec1))
-        magnitude2 = math.sqrt(sum(b * b for b in vec2))
-        
-        if magnitude1 == 0 or magnitude2 == 0:
+        if norm1 == 0 or norm2 == 0:
             return 0.0
             
-        return dot_product / (magnitude1 * magnitude2)
+        return float(dot_product / (norm1 * norm2))

@@ -28,7 +28,7 @@ class TestPolicyDecoupling(unittest.TestCase):
     def test_custom_policy_injection(self):
         print("\nTesting Custom Policy Injection...")
         
-        def dummy_condition(state): return False
+        def dummy_condition(state, active_pages): return False
         def dummy_reaction(state): return None
         
         custom_policy = KernelPolicy(name="CustomTestPolicy", condition=dummy_condition, reaction=dummy_reaction)

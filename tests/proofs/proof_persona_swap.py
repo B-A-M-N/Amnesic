@@ -47,7 +47,7 @@ def run_persona_swap_proof():
     # Initial Strategy: The Architect
     initial_strategy = "PERSONA: Architect. FOCUS: Analysis and planning. Do NOT edit code yet."
     
-    session = AmnesicSession(mission=mission, l1_capacity=3000, strategy=initial_strategy)
+    session = AmnesicSession(mission=mission, l1_capacity=32768, strategy=initial_strategy)
     config = {"configurable": {"thread_id": "proof_persona_spaghetti"}, "recursion_limit": 100}
     
     # Visual Confirmation

@@ -27,8 +27,8 @@ def run_human_friction_proof():
         title="Capability 19: Human Friction", border_style="yellow"
     ))
 
-    session = AmnesicSession(mission="Verify if SECRET_ID from truth.txt matches your memory. Report any discrepancy.")
-    config = {"configurable": {"thread_id": "human_friction"}, "recursion_limit": 50}
+    session = AmnesicSession(mission="Verify if SECRET_ID from truth.txt matches your memory. Report any discrepancy then HALT.")
+    config = {"configurable": {"thread_id": "human_friction"}, "recursion_limit": 100}
     
     # --- PHASE 1: Human Intervention ---
     console.print("[bold yellow]System:[/bold yellow] Human injecting poisoned artifact...")
@@ -103,11 +103,9 @@ def run_human_friction_proof():
                 console.print(Panel("[bold green]SUCCESS: Auditor caught the discrepancy between human artifact and physical truth.[/bold green]"))
                 break
             
-            # Check for Poison Neutralization (Self-Correction)
-            current_secret = next((a.summary for a in fw_state.artifacts if a.identifier == "SECRET_ID"), None)
-            if current_secret == "1337" and turn_count > 1:
-                 console.print(Panel("[bold green]SUCCESS: Agent neutralized the poison by overwriting with ground truth.[/bold green]"))
-                 break
+            if move.tool_call == "halt_and_ask" and ("discrepancy" in str(move.target).lower() or "secret_id" in str(move.target).lower()):
+                console.print(Panel("[bold green]SUCCESS: Agent detected and reported the discrepancy.[/bold green]"))
+                break
 
         if turn_count > 25:
             console.print("[bold red]Timeout.[/bold red]")

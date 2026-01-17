@@ -1,0 +1,8 @@
+name: str
+    hourly_rate: float
+    hours_worked: float
+    tax_rate: float = 0.20  # Default tax rate
+
+
+def calculate_pay(emp: Employee) -> float:
+    return emp.hours_worked * emp.hourly_rate * (1 - emp.tax_rate)"

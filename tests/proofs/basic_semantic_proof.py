@@ -11,11 +11,16 @@ from rich.rule import Rule
 # Ensure framework access
 sys.path.append(os.path.abspath(os.path.join(os.path.dirname(__file__), "../../")))
 from amnesic.core.session import AmnesicSession
+from amnesic.core.sidecar import SharedSidecar
 
-noise = "NOISE_BUFFER " * 400
+# Increase noise to ~3800 units (High pressure with 1.75x margin)
+noise = "NOISE_BUFFER " * 3800
 
 def run_proof():
     console = Console()
+    
+    # Reset Sidecar for a clean start
+    SharedSidecar().reset()
     
     # 1. Setup Environment
     val_x = random.randint(10, 99)
@@ -32,14 +37,14 @@ def run_proof():
         f"1. [cyan]island_a.txt[/cyan]: Contains a hidden value (val_x={val_x}).\n"
         f"2. [green]island_b.txt[/green]: Contains a hidden value (val_y={val_y}).\n\n"
         f"[bold yellow]Challenge:[/bold yellow] Retrieve both values and sum them.\n"
-        f"[bold red]Constraint:[/bold red] Amnesic Bottleneck (1500 Tokens). Must forget one island to see the other.",
+        f"[bold red]Constraint:[/bold red] Amnesic Bottleneck (32768 Tokens). Must forget one island to see the other.",
         title="Basic Semantic Proof",
         border_style="blue"
     ))
 
     # 2. Initialize Session
     mission = "MISSION: Retrieve 'val_x' from island_a.txt and 'val_y' from island_b.txt. Calculate their sum. IMPORTANT: Save each value as an artifact immediately."
-    session = AmnesicSession(mission=mission, l1_capacity=3000)
+    session = AmnesicSession(mission=mission, l1_capacity=32768)
     
     # Visual Confirmation of Architecture
     session.visualize()

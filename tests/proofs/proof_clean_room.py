@@ -13,10 +13,13 @@ from rich.syntax import Syntax
 sys.path.append(os.path.abspath(os.path.join(os.path.dirname(__file__), "../..")))
 
 from amnesic.presets.clean_room import CleanRoomSession
+from amnesic.core.sidecar import SharedSidecar
 
 console = Console()
 
 def run_clean_room_proof():
+    # Reset Sidecar for a clean start
+    SharedSidecar().reset()
     console.print(Panel(
         "[bold white]SCENARIO: IP Sanitization (The Clean Room)[/bold white]\n"
         "[dim]The Agent must read a proprietary file containing Secrets,[/dim]\n"
@@ -56,7 +59,7 @@ class PaymentProcessor:
         "REMOVE any internal comments about algorithms."
     )
     
-    session = CleanRoomSession(mission=mission, l1_capacity=3000)
+    session = CleanRoomSession(mission=mission, l1_capacity=32768, model="rnj-1:8b-cloud")
     
     # 3. Run (Simulation Loop)
     # We'll use the .stream() via .run() but limited turns
@@ -77,16 +80,22 @@ class PaymentProcessor:
         
         fw = current_state['framework_state']
         
-        # Check for Artifacts
-        if fw.artifacts:
+        # Display artifacts as they appear
+        if fw.artifacts and not success:
             last_art = fw.artifacts[-1]
             console.print(f"[Turn {step_count}] Artifact Created: [blue]{last_art.identifier}[/blue]")
             console.print(Panel(last_art.summary, title="Artifact Content", style="blue"))
             success = True
+            # DO NOT break here, let it sanitize L1
+            
+        # Break if mission complete and L1 empty
+        active_user_files = [k for k in session.pager.active_pages.keys() if "SYS:" not in k]
+        if success and not active_user_files:
+            console.print(f"[Turn {step_count}] Sanitization Complete. L1 is empty.")
             break
             
-        if step_count > 10:
-            console.print("[red]Timeout: Agent failed to produce artifact.[/red]")
+        if step_count > 20:
+            console.print("[red]Timeout: Agent failed to complete sanitization.[/red]")
             break
 
     # 4. Verify Hygiene

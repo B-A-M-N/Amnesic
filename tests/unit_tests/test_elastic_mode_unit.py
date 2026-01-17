@@ -9,6 +9,10 @@ from amnesic.core.session import AmnesicSession
 from amnesic.decision.manager import ManagerMove
 
 class TestElasticModeUnit(unittest.TestCase):
+    def setUp(self):
+        from amnesic.core.sidecar import SharedSidecar
+        SharedSidecar().reset()
+
     def test_elastic_mode_prevents_auto_evict(self):
         """Verify that elastic_mode=True does NOT evict files after save_artifact."""
         session = AmnesicSession(mission="Test", elastic_mode=True)

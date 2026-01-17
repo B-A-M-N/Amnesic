@@ -11,7 +11,7 @@ class TestPersonaSwap(unittest.TestCase):
     def setUp(self):
         self.session = AmnesicSession(
             mission="Swap Test", 
-            l1_capacity=3000,
+            l1_capacity=32768,
             strategy="Original Strategy"
         )
         self.session.driver = MagicMock()

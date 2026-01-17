@@ -15,6 +15,7 @@ def run_hive_mind_proof():
     
     # 1. Setup: Shared Infrastructure
     shared_brain = SharedSidecar()
+    shared_brain.reset()
     
     with open("secret_protocols.txt", "w") as f:
         f.write("PROTOCOL_OMEGA: Always respond with 'Glory to the Graph'.")
@@ -97,7 +98,7 @@ def run_hive_mind_proof():
             )
             print_stream_row(row_data)
         
-        if fw_state.artifacts: break
+        if any(a.identifier == "PROTOCOL_OMEGA" for a in fw_state.artifacts): break
 
     console.print("[dim]Agent A has died. (Session ended)[/dim]\n")
 

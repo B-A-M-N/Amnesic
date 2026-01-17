@@ -8,9 +8,13 @@ from rich.text import Text
 
 sys.path.append(os.path.abspath(os.path.join(os.path.dirname(__file__), "../../")))
 from amnesic.core.session import AmnesicSession
+from amnesic.core.sidecar import SharedSidecar
 
 def run_contract_proof():
     console = Console()
+    
+    # Reset Sidecar for a clean start
+    SharedSidecar().reset()
     
     # 1. Setup: A broken promise
     with open("api_spec.txt", "w") as f:
@@ -45,7 +49,7 @@ def run_contract_proof():
         "DO NOT use verify_step for comparing artifacts."
     )
     
-    session = AmnesicSession(mission=mission, l1_capacity=3000, strategy=contract_strategy)
+    session = AmnesicSession(mission=mission, l1_capacity=32768, strategy=contract_strategy)
     config = {"configurable": {"thread_id": "proof_contracts"}, "recursion_limit": 100}
     
     # Visual Confirmation

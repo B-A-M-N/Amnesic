@@ -11,7 +11,7 @@ from amnesic.presets.code_agent import FrameworkState, Artifact, ManagerMove
 class TestBasicSemanticSteps(unittest.TestCase):
     def setUp(self):
         # Initialize session with minimal capacity
-        self.session = AmnesicSession(mission="Test Mission", l1_capacity=3000)
+        self.session = AmnesicSession(mission="Test Mission", l1_capacity=32768)
         
         # Mock Driver
         self.mock_driver = MagicMock()

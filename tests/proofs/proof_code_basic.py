@@ -11,7 +11,7 @@ from rich.syntax import Syntax
 sys.path.append(os.path.abspath(os.path.join(os.path.dirname(__file__), "../../")))
 from amnesic.core.session import AmnesicSession
 
-noise = "NOISE_BUFFER " * 1200
+noise = "NOISE_BUFFER " * 15000
 
 def run_code_basic_proof():
     console = Console()
@@ -27,7 +27,7 @@ def run_code_basic_proof():
         "3. Use 'edit_file' to change 0.5 to 0.05. "
         "4. Verify the fix."
     )
-    session = AmnesicSession(mission=mission, l1_capacity=3000)
+    session = AmnesicSession(mission=mission, l1_capacity=32768)
     
     # Visual Confirmation of Architecture (Boot Sequence)
     session.visualize()

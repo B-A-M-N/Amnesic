@@ -12,7 +12,7 @@ from .base import LLMDriver
 logger = logging.getLogger("amnesic.driver")
 
 class OllamaDriver(LLMDriver):
-    def __init__(self, model_name: str = "qwen2.5-coder:7b", temperature: float = 0.1, num_ctx: int = 8192, seed: Optional[int] = None):
+    def __init__(self, model_name: str = "qwen2.5-coder:7b", temperature: float = 0.1, num_ctx: int = 32768, seed: Optional[int] = None):
         """
         The low-level interface to the LLM. 
         Designed to be stateless to allow rapid 'Frame Swapping'.
@@ -133,6 +133,25 @@ class OllamaDriver(LLMDriver):
         """
         self._update_token_usage(system_prompt, user_prompt)
         
+        # Re-instantiate client to guarantee statelessness (prevent history accumulation)
+        client = ChatOllama(
+            model=self.model_name,
+            temperature=self.temperature,
+            format="json",
+            num_ctx=self.num_ctx,
+            options={
+                "seed": self.seed,
+                "temperature": self.temperature,
+                "num_ctx": self.num_ctx,
+                "top_k": 1,
+                "top_p": 0.0,
+                "repeat_penalty": 1.0,
+                "mirostat": 0,
+                "mirostat_eta": 0.1,
+                "mirostat_tau": 5.0
+            }
+        )
+        
         # We use raw generation + parsing to have full control over the healing
         messages = [
             SystemMessage(content=system_prompt),
@@ -147,7 +166,7 @@ class OllamaDriver(LLMDriver):
                 
                 # Use standard invoke to get raw text, then parse ourselves
                 # This bypasses LangChain's strict parser which might fail before we can heal
-                response = self._client.invoke(messages)
+                response = client.invoke(messages)
                 
                 # --- NEW DEEP EXTRACTION ---
                 extracted = self._extract_json_block(response.content, schema)
@@ -169,39 +188,61 @@ class OllamaDriver(LLMDriver):
     def _extract_json_block(self, text: str, schema: Type[BaseModel]) -> Optional[BaseModel]:
         """Aggressive extraction: strips markdown, thinking tags, and handles non-JSON fallbacks."""
         
-        # 0. Strip Thinking Tags (CoT)
-        # Handle <think>...</think>, [THOUGHT]..., THOUGHT: ...
+        # Capture thought process from text for later injection (External CoT)
+        captured_thought = None
+        thought_match = re.search(r"(?i)THOUGHT(?: PROCESS)?:\s*(.*?)(?=\n|```)", text, re.DOTALL)
+        if thought_match:
+             captured_thought = thought_match.group(1).strip()
+
+        # 0. Strip Thinking Tags (CoT) first to avoid brace confusion
         text = re.sub(r'<think>.*?</think>', '', text, flags=re.DOTALL)
         text = re.sub(r'\[THOUGHT\].*?\[/THOUGHT\]', '', text, flags=re.DOTALL)
 
-        # 1. Strip Markdown Code Blocks
-        # We find all blocks and try them one by one
-        code_blocks = re.findall(r'```(?:json|python|markdown|text)?\s*(.*?)\s*```', text, flags=re.DOTALL)
-        for block in code_blocks:
-            extracted = self._try_parse_schema(block.strip(), schema)
-            if extracted:
-                return extracted
+        # 1. NUCLEAR PRE-HEALER: Try to isolate the JSON block
+        # We find the FIRST '{' and LAST '}'
+        try:
+            start = text.find('{')
+            end = text.rfind('}') + 1
+            if start != -1 and end != 0:
+                json_candidate = text[start:end]
+                # Test it before committing
+                res = self._try_parse_schema(json_candidate, schema, default_thought=captured_thought)
+                if res: return res
+        except Exception:
+            pass
 
-        # 2. Try raw parse of cleaned text (if no markdown blocks found)
-        clean_text = text.strip()
-        extracted = self._try_parse_schema(clean_text, schema)
-        if extracted:
-            return extracted
-
-        # 3. Balanced Search (Targeting brackets)
-        # Find all '{' and try to find matching '}'
+        # 2. Balanced Search (Targeting brackets) - FIND ALL and try in REVERSE
         starts = [i for i, char in enumerate(text) if char == '{']
+        candidates = []
         for start in starts:
             balance = 0
             for i in range(start, len(text)):
                 if text[i] == '{': balance += 1
                 elif text[i] == '}': balance -= 1
                 if balance == 0:
-                    candidate = text[start:i+1]
-                    extracted = self._try_parse_schema(candidate, schema)
-                    if extracted:
-                        return extracted
-                    break # Stop trying this block if it failed
+                    candidates.append(text[start:i+1])
+                    break
+        
+        for cand in reversed(candidates):
+            # print(f"         Driver: Testing candidate JSON ({len(cand)} chars)...")
+            extracted = self._try_parse_schema(cand, schema, default_thought=captured_thought)
+            if extracted: 
+                # print(f"         Driver: SUCCESS: Extracted {schema.__name__}")
+                return extracted
+
+        # 3. Strip Markdown Code Blocks
+        code_blocks = re.findall(r'```(?:json|python|markdown|text)?\s*(.*?)\s*```', text, flags=re.DOTALL)
+        for block in reversed(code_blocks):
+            # print(f"         Driver: Testing code block ({len(block)} chars)...")
+            extracted = self._try_parse_schema(block.strip(), schema, default_thought=captured_thought)
+            if extracted: 
+                # print(f"         Driver: SUCCESS: Extracted {schema.__name__} from code block")
+                return extracted
+
+        # 3. Try raw parse of cleaned text
+        clean_text = text.strip()
+        extracted = self._try_parse_schema(clean_text, schema, default_thought=captured_thought)
+        if extracted: return extracted
 
         # 4. KEY-VALUE FALLBACK (Targeting 8b models that output semi-structured text)
         if "TOOL CALL:" in clean_text or "tool_call:" in clean_text.lower():
@@ -232,6 +273,10 @@ class OllamaDriver(LLMDriver):
                     if ("edit_file" in tc or "write_file" in tc) and ":" not in kv_data["target"]:
                         kv_data["target"] = f"{kv_data['target']}: {content}"
                 
+                # Inject captured thought if missing
+                if "thought_process" not in kv_data and captured_thought:
+                    kv_data["thought_process"] = captured_thought
+
                 if "tool_call" in kv_data:
                     # Validate against schema
                     return schema.model_validate(kv_data)
@@ -258,7 +303,7 @@ class OllamaDriver(LLMDriver):
                             target_val = target_val[len(prefix):].strip()
                     
                     # If there's a thought process earlier, try to grab it
-                    tp = "Extracted from direct tool call."
+                    tp = captured_thought if captured_thought else "Extracted from direct tool call."
                     tp_match = re.search(r"(?i)THOUGHT(?: PROCESS)?:\s*(.*?)(?=\n|$|{tool})", clean_text, re.DOTALL)
                     if tp_match:
                         tp = tp_match.group(1).strip()
@@ -290,7 +335,7 @@ class OllamaDriver(LLMDriver):
             
         return None
 
-    def _try_parse_schema(self, candidate: str, schema: Type[BaseModel]) -> Optional[BaseModel]:
+    def _try_parse_schema(self, candidate: str, schema: Type[BaseModel], default_thought: str = None) -> Optional[BaseModel]:
         """Helper to try parsing a string with a schema, including healing."""
         # 0. Pre-cleaning: remove "Thought: " or similar prefixes if they leaked into the candidate
         candidate = re.sub(r'(?i)^thought:\s*', '', candidate.strip())
@@ -302,6 +347,15 @@ class OllamaDriver(LLMDriver):
             if schema.__name__ == "AuditorVerdict":
                 if "rationate" in data and "rationale" not in data: data["rationale"] = data.pop("rationate")
                 if "rationction" in data and "rationale" not in data: data["rationale"] = data.pop("rationction")
+            
+            if schema.__name__ == "ManagerMove":
+                if "action" in data and "tool_call" not in data: data["tool_call"] = data.pop("action")
+                if "thought" in data and "thought_process" not in data: data["thought_process"] = data.pop("thought")
+                if "logic" in data and "thought_process" not in data: data["thought_process"] = data.pop("logic")
+            
+            # --- THOUGHT INJECTION ---
+            if schema.__name__ == "ManagerMove" and "thought_process" not in data and default_thought:
+                data["thought_process"] = default_thought
             
             # --- NULL TARGET HEALING ---
             if schema.__name__ == "ManagerMove" and data.get("target") is None:
@@ -318,9 +372,19 @@ class OllamaDriver(LLMDriver):
                 else:
                     # Fallback stringify
                     data["target"] = json.dumps(t_dict)
+            
+            # --- CODE BLOCK SANITIZATION IN TARGET ---
+            if schema.__name__ == "ManagerMove" and data.get("target"):
+                t = str(data["target"])
+                if "```" in t:
+                    # Strip markdown fences from target value
+                    t = re.sub(r"```(?:[a-zA-Z]+)?\s*(.*?)\s*```", r"\1", t, flags=re.DOTALL)
+                    data["target"] = t.strip()
                 
             return schema.model_validate(data)
-        except (json.JSONDecodeError, ValueError, ValidationError):
+        except (json.JSONDecodeError, ValueError, ValidationError) as e:
+            # DEBUG: Print why it failed
+            # print(f"DEBUG: Parse failed for candidate: {candidate[:50]}... Reason: {e}")
             pass
             
         # Sub-attempt 2: Healer (Fix single quotes and Python bools)
@@ -332,6 +396,15 @@ class OllamaDriver(LLMDriver):
             if schema.__name__ == "AuditorVerdict":
                 if "rationate" in data and "rationale" not in data: data["rationale"] = data.pop("rationate")
                 if "rationction" in data and "rationale" not in data: data["rationale"] = data.pop("rationction")
+            
+            if schema.__name__ == "ManagerMove":
+                if "action" in data and "tool_call" not in data: data["tool_call"] = data.pop("action")
+                if "thought" in data and "thought_process" not in data: data["thought_process"] = data.pop("thought")
+                if "logic" in data and "thought_process" not in data: data["thought_process"] = data.pop("logic")
+            
+            # --- THOUGHT INJECTION ---
+            if schema.__name__ == "ManagerMove" and "thought_process" not in data and default_thought:
+                data["thought_process"] = default_thought
             
             # --- NULL TARGET HEALING ---
             if schema.__name__ == "ManagerMove" and data.get("target") is None:
@@ -346,6 +419,13 @@ class OllamaDriver(LLMDriver):
                     data["target"] = t_dict["artifact_key"]
                 else:
                     data["target"] = json.dumps(t_dict)
+            
+            # --- CODE BLOCK SANITIZATION IN TARGET ---
+            if schema.__name__ == "ManagerMove" and data.get("target"):
+                t = str(data["target"])
+                if "```" in t:
+                    t = re.sub(r"```(?:[a-zA-Z]+)?\s*(.*?)\s*```", r"\1", t, flags=re.DOTALL)
+                    data["target"] = t.strip()
                 
             return schema.model_validate(data)
         except (json.JSONDecodeError, ValueError, ValidationError):
@@ -422,9 +502,28 @@ class OllamaDriver(LLMDriver):
 
     def generate_raw(self, prompt: str, system_prompt: str) -> str:
         self._update_token_usage(system_prompt, prompt)
+        
+        client = ChatOllama(
+            model=self.model_name,
+            temperature=self.temperature,
+            format="", # Raw mode
+            num_ctx=self.num_ctx,
+            options={
+                "seed": self.seed,
+                "temperature": self.temperature,
+                "num_ctx": self.num_ctx,
+                "top_k": 1,
+                "top_p": 0.0,
+                "repeat_penalty": 1.0,
+                "mirostat": 0,
+                "mirostat_eta": 0.1,
+                "mirostat_tau": 5.0
+            }
+        )
+        
         messages = [
             SystemMessage(content=system_prompt),
             HumanMessage(content=prompt)
         ]
-        response = self._client.invoke(messages)
+        response = client.invoke(messages)
         return response.content

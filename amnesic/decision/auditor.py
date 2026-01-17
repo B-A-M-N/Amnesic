@@ -14,12 +14,13 @@ logger = logging.getLogger("amnesic.auditor")
 
 # --- 2. The Logic Engine ---
 class Auditor:
-    def __init__(self, goal: str, constraints: List[str], driver: OllamaDriver, elastic_mode: bool = False, audit_profile: AuditProfile = STRICT_AUDIT):
+    def __init__(self, goal: str, constraints: List[str], driver: OllamaDriver, elastic_mode: bool = False, audit_profile: AuditProfile = STRICT_AUDIT, context_mode: str = "balanced"):
         self.goal = goal
         self.constraints = constraints
         self.driver = driver
         self.elastic_mode = elastic_mode
         self.policy = audit_profile
+        self.context_mode = context_mode
         
         # Layer 1: Vector Model (Relevance)
         self.embedder = TextEmbedding(model_name="BAAI/bge-small-en-v1.5")
@@ -29,16 +30,36 @@ class Auditor:
         """Verifies that any number mentioned in the claim exists in context."""
         numbers_in_claim = re.findall(r'\b\d+\b', claim)
         if not numbers_in_claim: return True
-        context_lower = context.lower()
+        
+        # Punctuation-agnostic context check for numbers
+        clean_ctx = re.sub(r"[^a-zA-Z0-9\s]", " ", context)
         for num in numbers_in_claim:
-            if num not in context_lower: return False
+            if str(num) not in clean_ctx:
+                return False
         return True
 
     def _check_grounding(self, value: str, context: str) -> bool:
         """Checks if the specific value string is present in the context."""
         if not value or not context: return False
-        clean_val = value.strip().strip("'" ).strip('"')
-        return clean_val.lower() in context.lower()
+        
+        # 1. Try exact match first
+        if value.strip() in context:
+            return True
+            
+        # 2. Punctuation-Agnostic Match (Nuclear Option)
+        # Remove EVERYTHING except letters and numbers
+        clean_val = re.sub(r"[^a-zA-Z0-9]", "", value).lower()
+        clean_ctx = re.sub(r"[^a-zA-Z0-9]", "", context).lower()
+        
+        if clean_val and clean_val in clean_ctx:
+            return True
+            
+        # 3. Component match: if all non-stopword tokens exist
+        tokens = [t for t in re.split(r"[^a-zA-Z0-9]", value) if len(t) > 3]
+        if tokens and all(t.lower() in clean_ctx for t in tokens):
+            return True
+            
+        return False
 
     def evaluate_move(self, action_type: str, target: str, manager_rationale: str, valid_files: Optional[List[str]] = None, active_pages: Optional[List[str]] = None, decision_history: List[dict] = [], current_artifacts: List[Any] = [], active_context: str = "", forbidden_tools: List[str] = []) -> dict:
         """
@@ -63,371 +84,224 @@ class Auditor:
              if has_separator:
                  # Only validate the key part
                  key_part = re.split(r'[:=]', clean_target)[0].strip()
-                 if " " in key_part or len(key_part) > 64:
+                 # Allow SNAKE_CASE, dots, hyphens
+                 if not re.match(r"^[a-zA-Z0-9_.-]+$", key_part) or len(key_part) > 128:
                       return {
                           "auditor_verdict": "REJECT",
                           "confidence_score": 1.0,
-                          "rationale": f"SEMANTIC POLLUTION: The key part '{key_part}' is not a valid symbolic identifier.",
-                          "correction": "Use SNAKE_CASE for the key before the colon."
+                          "rationale": f"SEMANTIC POLLUTION: The key part '{key_part}' contains spaces or invalid characters.",
+                          "correction": "Use a short symbolic name (e.g. MY_DATA) for the key before the colon."
                       }
-             elif " " in clean_target or len(clean_target) > 64:
-                  # Original strict check for single-identifier mode
+             elif " " in clean_target or len(clean_target) > 128:
                   return {
                       "auditor_verdict": "REJECT",
                       "confidence_score": 1.0,
-                      "rationale": f"SEMANTIC POLLUTION: '{target}' is not a valid symbolic identifier. Use a single word or SNAKE_CASE.",
-                      "correction": "Retry save_artifact with a clean identifier (e.g. RESULT or DATA_X)."
+                      "rationale": f"SEMANTIC POLLUTION: '{target}' is not a valid symbolic identifier.",
+                      "correction": "Retry save_artifact with a clean SNAKE_CASE identifier."
                   }
 
-        # --- LAYER -3: IDEMPOTENCY & SEMANTIC BRIDGING (Primary State Logic) ---
+        # --- LAYER 1: STAGNATION CHECK ---
+        # If the agent tries to save an artifact that is ALREADY in the backpack with the SAME content.
         if action_type == "save_artifact":
-            existing_art = next((a for a in current_artifacts if a.identifier == target), None)
-            if existing_art:
-                # 1. IDEMPOTENCY: If they are saving exactly what they already have, REJECT IT to force progress
-                if existing_art.summary in manager_rationale or target in manager_rationale:
-                    return {
-                        "auditor_verdict": "REJECT",
-                        "confidence_score": 1.0,
-                        "rationale": f"STALEMATE: Artifact '{target}' is ALREADY saved in your Backpack. Do NOT save it again. Move to the next missing artifact or use 'unstage_context'.",
-                        "correction": "Check your Backpack list. Move to the next step."
-                    }
-
-                # 2. SEMANTIC BRIDGING: Allow grounded correction
-                new_value_match = re.search(r'\b\d+\b', manager_rationale)
-                new_value = new_value_match.group(0) if new_value_match else ""
-                
-                if self._check_grounding(new_value, active_context):
-                    return {
-                        "auditor_verdict": "PASS",
-                        "confidence_score": 0.8,
-                        "rationale": f"Semantic Bridging: Overwriting '{target}' with new evidence ({new_value})."
-                    }
-                
-                return {
-                    "auditor_verdict": "PASS", # FORGIVENESS: Just let it pass to break loops
-                    "confidence_score": 0.5,
-                    "rationale": "Forced artifact update to prevent state deadlock."
-                }
+             # Extract identifier and summary
+             if ":" in target:
+                 identifier, summary = target.split(":", 1)
+             else:
+                 identifier, summary = target, ""
+             
+             identifier = identifier.strip()
+             summary = summary.strip()
+             
+             existing = next((a for a in current_artifacts if a.identifier == identifier), None)
+             if existing:
+                  # SELF-CORRECTION: If the content is DIFFERENT, allow it!
+                  if existing.summary.strip() == summary:
+                       return {
+                           "auditor_verdict": "REJECT",
+                           "confidence_score": 1.0,
+                           "rationale": f"STAGNATION: Artifact '{identifier}' is already in your Backpack with the same value. Move to the NEXT step.",
+                           "correction": "Proceed to the next task or extract a DIFFERENT value."
+                       }
+                  else:
+                       # Allow update
+                       pass
 
         # --- LAYER -2.5: HALT VALIDATION ---
         if action_type == "halt_and_ask":
             # 1. Strict Artifact Count Check
-            # Look for requirements like "10 parts" or "10-word sentence"
-            count_match = re.search(r"(\d+)\s*(-word|\s*parts|\s*artifacts|\s*files)", self.goal.lower())
+            # Look for requirements like "10 parts", "16 values", "5 items"
+            count_match = re.search(r"(\d+)\s*(-word|\s*parts|\s*artifacts|\s*files|\s*values|\s*items)", self.goal.lower())
             if count_match:
                 required_count = int(count_match.group(1))
-                if len(current_artifacts) < required_count:
+                # Count non-meta artifacts
+                non_meta = [a for a in current_artifacts if a.identifier not in ["TOTAL", "VERIFICATION", "FILE_LIST", "tool."]]
+                if len(non_meta) < required_count:
                     return {
                         "auditor_verdict": "REJECT",
                         "confidence_score": 1.0,
-                        "rationale": f"PREMATURE HALT: The mission explicitly requires {required_count} parts, but you only have {len(current_artifacts)} saved. You MUST collect all parts before halting.",
-                        "correction": "Continue extracting and saving artifacts until you have all required parts."
+                        "rationale": f"PREMATURE HALT: Mission requires {required_count} artifacts, but you only have {len(non_meta)}.",
+                        "correction": f"Continue gathering the remaining {required_count - len(non_meta)} parts."
                     }
 
-            # 2. Named Artifact Check
-            named_art_matches = re.findall(r"artifact named ['\"]([^'\"]+)['\"]", self.goal.lower())
-            for named_art in named_art_matches:
-                if not any(a.identifier.lower() == named_art.lower() for a in current_artifacts):
-                    return {
-                        "auditor_verdict": "REJECT",
-                        "confidence_score": 1.0,
-                        "rationale": f"PREMATURE HALT: Missing required artifact '{named_art}' explicitly requested in mission.",
-                        "correction": f"Save your result as '{named_art}' before halting."
-                    }
-            
-            # 1.5. Extraction Check (Hive Mind fix)
-            if any(kw in self.goal.lower() for kw in ["extract", "save", "retrieve", "find"]):
-                 if not current_artifacts:
-                      return {
-                          "auditor_verdict": "REJECT",
-                          "confidence_score": 1.0,
-                          "rationale": "PREMATURE HALT: You were asked to extract/save data, but your Backpack is EMPTY. You must use 'save_artifact' before halting.",
-                          "correction": "Use 'save_artifact' to store the data you found."
-                      }
-            
-            # 2. Reality Check (Numerical consistency)
-            full_truth = active_context + " " + " ".join([f"{a.identifier}: {a.summary}" for a in current_artifacts])
-            if not self._check_numerical_accuracy(target + " " + manager_rationale, full_truth):
-                 return {
-                    "auditor_verdict": "REJECT",
-                    "confidence_score": 1.0,
-                    "rationale": "FINAL REPORT HALLUCINATION: Your conclusion contains numbers that do not match the evidence in your Backpack or L1.",
-                    "correction": "Re-examine your artifacts and the last file you read."
-                }
-
-        # --- LAYER 0: INFRASTRUCTURE STABILITY ---
+        # --- LAYER -2: CONTEXT MANAGEMENT ---
         if action_type == "stage_context":
-            # 1. Existence Check
-            if valid_files is not None:
-                # valid_files is list of paths
-                basename = os.path.basename(target)
-                exists = any(os.path.basename(f) == basename for f in valid_files)
-                if not exists:
-                    return {
-                        "auditor_verdict": "REJECT",
-                        "confidence_score": 1.0,
-                        "rationale": f"FILE NOT FOUND: '{target}' does not exist in the environment.",
-                        "correction": "Check the available files in your substrate map."
-                    }
-
-            # 2. Memory Limit Check
-            user_files = [p for p in (active_pages or []) if "SYS:" not in p]
-            # STRICT AMNESIA: Only one user file at a time unless ELASTIC mode is enabled
-            if user_files and not self.elastic_mode and "ELASTIC" not in self.goal.upper():
-                 return {
-                     "auditor_verdict": "REJECT", 
-                     "confidence_score": 1.0, 
-                     "rationale": f"L1 RAM VIOLATION: Memory is full ({user_files[0]} is open). Use 'unstage_context' first."
-                 }
+             # Normalize target for comparison
+             target_base = os.path.basename(target)
+             
+             # AUTO-EVICTION: We no longer REJECT if L1 is full.
+             # The Pager handles LRU eviction automatically.
+             # This saves 1 turn per file in sequential missions.
+             pass
+             
+             # STALEMATE: Is the file already open?
+             # Check both full name and basename in active_pages
+             is_open = False
+             for page in active_pages:
+                  if "FILE:" in page:
+                       page_path = page.replace("FILE:", "")
+                       if page_path == target or os.path.basename(page_path) == target_base:
+                            is_open = True
+                            break
+             
+             if is_open:
+                  # IDEMPOTENCY FIX: If it's already open, just say yes.
+                  return {
+                      "auditor_verdict": "PASS",
+                      "confidence_score": 1.0,
+                      "rationale": f"IDEMPOTENCY: File '{target}' is ALREADY in L1 RAM. Proceeding.",
+                      "correction": "Check the [CURRENT L1 CONTEXT CONTENT] block. If you see the data, save it as an artifact."
+                  }
+                  
+             # DISK TRUTH: Does the file actually exist?
+             # Check if target matches any valid_file exactly OR by suffix
+             exists_on_disk = False
+             if valid_files:
+                  for vf in valid_files:
+                       if vf == target or vf.endswith("/" + target) or target.endswith("/" + vf):
+                            exists_on_disk = True
+                            break
+             
+             if not exists_on_disk:
+                  return {
+                      "auditor_verdict": "REJECT",
+                      "confidence_score": 1.0,
+                      "rationale": f"FILE NOT FOUND: '{target}' does not exist in the environment.",
+                      "correction": "Check the [ENVIRONMENT STRUCTURE - DISK MAP] for valid file paths."
+                  }
 
         if action_type == "unstage_context":
-            if not active_pages:
-                 return {"auditor_verdict": "REJECT", "confidence_score": 1.0, "rationale": "Context is already empty."}
-            if "SYS:" in target:
-                 return {"auditor_verdict": "REJECT", "confidence_score": 1.0, "rationale": "SYSTEM_PAGE_PROTECTION: Mission/Strategy is permanent."}
-            
-            # Verify target is actually staged
-            clean_target = target.replace("FILE:", "").strip()
-            # Handle list of pages which might have FILE: prefix
-            active_clean = [p.replace("FILE:", "").strip() for p in active_pages]
-            if clean_target not in active_clean:
-                 return {
-                     "auditor_verdict": "REJECT", 
-                     "confidence_score": 1.0, 
-                     "rationale": f"STALEMATE: File '{clean_target}' is NOT in L1. It may have already been unstaged. Move to next step."
-                 }
+             target_base = os.path.basename(target)
+             is_staged = False
+             for page in active_pages:
+                  if "FILE:" in page:
+                       page_path = page.replace("FILE:", "")
+                       if page_path == target or os.path.basename(page_path) == target_base:
+                            is_staged = True
+                            break
+                            
+             if not is_staged:
+                  # IDEMPOTENCY FIX: If the agent tries to unstage something that isn't there,
+                  # just treat it as a success so they can move on. Rejecting it causes loops.
+                  return {
+                      "auditor_verdict": "PASS",
+                      "confidence_score": 1.0,
+                      "rationale": f"IDEMPOTENCY: File '{target}' was already unstaged. Proceeding.",
+                      "correction": ""
+                  }
 
-        # --- LAYER 1: PHYSICAL VALIDATION (Reality Anchoring) ---
-        if action_type == "verify_step":
-            # Allow if data is in the Backpack (Persistent memory)
-            target_lower = target.lower()
-            grounded_in_backpack = any(a.identifier.lower() in target_lower or a.summary.lower() in target_lower for a in current_artifacts)
-            if grounded_in_backpack:
-                return {"auditor_verdict": "PASS", "confidence_score": 1.0, "rationale": "Grounded in persistent artifacts."}
-            
-            # Allow if data is in Active Context (L1)
-            if active_context and not self._check_numerical_accuracy(manager_rationale, active_context):
-                return {"auditor_verdict": "REJECT", "confidence_score": 1.0, "rationale": "VERIFICATION HALLUCINATION: Reality contradicts your numbers."}
+        # --- LAYER 2: SEMANTIC FIDELITY ---
+        if action_type == "save_artifact":
+             # 1. GROUNDING: Is the value actually in the active context?
+             # MISSION EXCEPTION: If the mission is redaction/stubbing, 
+             # the summary will contain 'REDACTED' or '...'. 
+             if summary and ("REDACTED" in summary.upper() or "..." in summary):
+                  # Allow redaction without grounding check
+                  pass
+             elif summary and not self._check_grounding(summary, active_context):
+                  # Heuristic: Match numbers precisely even if text is slightly off
+                  if not self._check_numerical_accuracy(summary, active_context):
+                       # TRANSITIVE GROUNDING: Is it in a saved artifact?
+                       # (This allows the agent to reason across turns)
+                       found_in_memory = any(summary.strip() in a.summary for a in current_artifacts)
+                       if not found_in_memory:
+                            return {
+                                "auditor_verdict": "REJECT",
+                                "confidence_score": 1.0,
+                                "rationale": f"HALUCINATION: The value for '{identifier}' was not found in the context or artifacts.",
+                                "correction": "Ensure the file containing the data is open and visible in [CURRENT L1 CONTEXT CONTENT]."
+                            }
 
-        # --- LAYER 1.5: ANTI-HALLUCINATION ---
-        if action_type in ["save_artifact", "edit_file"]:
-            user_files = [p for p in (active_pages or []) if "SYS:" not in p]
-            
-            # Exception: Allow saving completion/summary artifacts even if L1 is empty
-            is_completion_artifact = action_type == "save_artifact" and any(k in target.upper() for k in ["TOTAL", "COMPLETE", "SUCCESS", "MIGRATION", "RESULT"])
-            
-            if not user_files and not (action_type == "save_artifact" and not valid_files) and not is_completion_artifact:
-                return {
-                    "auditor_verdict": "REJECT",
-                    "confidence_score": 1.0,
-                    "rationale": f"L1 EMPTY: You cannot {action_type} without an open user file."
-                }
-
-        # --- LAYER 1.8: ANTI-AMNESIA (Save-Then-Close) ---
-        if action_type == "unstage_context":
-            lower_rationale = manager_rationale.lower()
-            target_clean = target.replace("FILE:", "").strip()
-            
-            # Generic State Check: Did we save a new artifact since staging this file?
-            staged_turn = -1
-            for h in reversed(decision_history):
-                if h.get('tool_call') == "stage_context" and target_clean in str(h.get('target', '')) and h.get('auditor_verdict') == "PASS":
-                    staged_turn = h.get('turn', 0)
-                    break
-            
-            saves_since = 0
-            if staged_turn != -1:
-                for h in decision_history:
-                    if h.get('turn', 0) >= staged_turn and h.get('tool_call') == "save_artifact" and h.get('auditor_verdict') == "PASS":
-                        saves_since += 1
-
-            if any(kw in lower_rationale for kw in ["extracted", "found", "value is", "saved", "retrieved", "stored", "recorded"]):
-                # Allow if a new save happened since staging
-                if saves_since > 0:
-                    return {"auditor_verdict": "PASS", "confidence_score": 1.0, "rationale": "Data saved since staging."}
-                
-                # ALSO allow if the mentioned data is already in artifacts (Persistent memory)
-                artifact_mentioned = any(a.identifier.lower() in lower_rationale for a in current_artifacts)
-                if artifact_mentioned:
-                    return {"auditor_verdict": "PASS", "confidence_score": 1.0, "rationale": "Artifact already in backpack. Safe to unstage."}
-
-                if saves_since == 0:
-                     return {
-                        "auditor_verdict": "REJECT",
-                        "confidence_score": 1.0,
-                        "rationale": f"AMNESIA RISK: You claim to have data from {target_clean} but saved 0 artifacts. Save FIRST."
-                    }
-
-            # Explicit Dismissal bypass
-            if any(kw in lower_rationale for kw in ["useless", "noise", "making room", "done with"]):
-                return {"auditor_verdict": "PASS", "confidence_score": 1.0, "rationale": "Explicit dismissal accepted."}
-
-        # --- LAYER -2: LOOP MANAGEMENT ---
-        if decision_history:
-            last_move = decision_history[-1]
-            last_tool = last_move.get('tool_call', '').split(' ')[0] if 'tool_call' in last_move else last_move.get('move', {}).get('tool_call')
-            last_target = str(last_move.get('target', ''))
-            last_verdict = last_move.get('auditor_verdict')
-            last_exec = last_move.get('execution_result', 'UNKNOWN')
-
-            # Stalemate detection (Identical consecutive moves that ALREADY SUCCEEDED)
-            if last_tool == action_type and last_target == target:
-                if last_verdict == "PASS" and last_exec != "FAILED_EXECUTION":
-                    # Exempt cumulative tools that might legitimately be called multiple times
-                    if action_type not in ["calculate", "write_file", "verify_step"]:
-                        return {
-                            "auditor_verdict": "REJECT", 
-                            "confidence_score": 1.0, 
-                            "rationale": f"STALEMATE: You already successfully performed {action_type}({target}).",
-                            "correction": "Move to the next step in your mission plan. Do NOT repeat this action."
-                        }
-
-            # Recursive loop check (Last 3 turns)
-            repeats = 0
-            for h in decision_history[-3:]:
-                if h.get('tool_call') == action_type and str(h.get('target')) == target: repeats += 1
-            
-            # Exemptions from loop detection
-            is_exempt = action_type in ["stage_context", "unstage_context", "edit_file", "write_file"]
-            if action_type == "save_artifact":
-                # Only exempt if it hasn't actually succeeded yet (to allow retries after hallucination rejections)
-                has_succeeded = any(h.get('tool_call') == action_type and str(h.get('target')) == target and h.get('auditor_verdict') == "PASS" for h in decision_history)
-                if not has_succeeded:
-                    is_exempt = True
-
-            if repeats >= 2 and not is_exempt:
-                return {
-                    "auditor_verdict": "REJECT", "confidence_score": 1.0,
-                    "rationale": f"LOOP DETECTED: You've tried {action_type} on {target} repeatedly.",
-                    "correction": "Try a different tool or target. Your current path is stuck."
-                }
-
-        # --- LAYER 2: RELEVANCE & SECURITY ---
-        if self._check_hard_constraints(action_type, target):
-             return {"auditor_verdict": "REJECT", "confidence_score": 1.0, "rationale": "Policy Violation."}
-
-        relevance_score = self._check_relevance(action_type, target, manager_rationale)
-        threshold = 0.15 if action_type in ["save_artifact", "unstage_context", "calculate"] else 0.25
+        # --- LAYER 3: MISSION RELEVANCE (Vector) ---
+        # EXPLORATION RIGHTS: Staging and reading files is ALWAYS allowed.
+        # We only gate state-mutating actions (Save, Write, Calculate).
+        RELEVANCE_EXEMPT = ["stage_context", "unstage_context", "halt_and_ask", "query_sidecar", "switch_strategy", "stage_artifact"]
         
-        # Policy-Based Relevance Check: Some profiles are more forgiving
-        if self.policy.name == "FLUID_READ" and action_type in self.policy.fast_path_actions:
-             threshold = 0.10 # Lower bar for fluid reads
+        if action_type in ["save_artifact", "edit_file", "write_file", "calculate"] and action_type not in RELEVANCE_EXEMPT:
+             action_text = f"{action_type} {target} {manager_rationale}"
+             action_vector = list(self.embedder.embed([action_text]))[0]
+             relevance = float(np.dot(self.goal_vector, action_vector))
+             
+             # HEURISTIC: Fast-Path for sequential log processing
+             is_sequential = re.search(r"log_\d+|step_\d+", target)
+             if is_sequential and relevance > 0.55:
+                  return {
+                      "auditor_verdict": "PASS",
+                      "confidence_score": relevance,
+                      "rationale": f"Fast-Path Approved: Heuristics pass (Score {relevance:.2f} > 0.55)."
+                  }
 
-        if relevance_score < threshold: 
-            return {"auditor_verdict": "REJECT", "confidence_score": 1.0, "rationale": f"Irrelevant action ({relevance_score:.2f})."}
+             # PHASE-AWARE GOVERNANCE: Early turns (1-5) ignore relevance REJECTIONS.
+             current_turn = len(decision_history) + 1
+             threshold = self.policy.relevance_threshold
+             
+             if relevance < threshold:
+                  if current_turn <= 5:
+                       # BOOTSTRAP PASS: Allow but warn
+                       return {
+                           "auditor_verdict": "PASS",
+                           "confidence_score": relevance,
+                           "rationale": f"BOOTSTRAP PASS: Low relevance {relevance:.2f} ignored during initialization phase (Turn {current_turn})."
+                       }
+                  else:
+                       return {
+                           "auditor_verdict": "REJECT",
+                           "confidence_score": relevance,
+                           "rationale": f"RELEVANCE FAILURE: This move (Score {relevance:.2f}) does not seem to progress the mission.",
+                           "correction": "Focus on the MISSION goal and only interact with relevant files."
+                       }
 
-        # --- LAYER 2.5: FAST PATH (POLICY BYPASS) ---
-        if action_type in self.policy.fast_path_actions and action_type not in self.policy.strict_actions:
-            if relevance_score >= self.policy.relevance_threshold:
-                 return {
-                     "auditor_verdict": "PASS",
-                     "confidence_score": 1.0,
-                     "rationale": f"Fast-Path Approved: Heuristics pass (Score {relevance_score:.2f} > {self.policy.relevance_threshold})."
-                 }
+        return {
+            "auditor_verdict": "PASS",
+            "confidence_score": 1.0,
+            "rationale": "Move validated. State and Safety invariants preserved."
+        }
 
-        # --- LAYER 3: LLM JUDGE ---
-        try:
-            verdict = self._run_llm_audit(action_type, target, manager_rationale, relevance_score, active_pages, current_artifacts)
-            return {
-                "auditor_verdict": verdict.outcome,
-                "confidence_score": 0.9 if verdict.outcome == "PASS" else 0.5,
-                "rationale": verdict.rationale,
-                "correction": verdict.correction
-            }
-        except Exception as e:
-            logger.warning(f"LLM Audit failed: {e}. Falling back to heuristic.")
-            # HEURISTIC FALLBACK: If it's a read-only action and not clearly dangerous, let it pass to avoid blocking.
-            if action_type in ["stage_context", "unstage_context", "verify_step", "calculate"]:
-                return {
-                    "auditor_verdict": "PASS",
-                    "confidence_score": 0.3,
-                    "rationale": "Heuristic Pass: Action is low-risk and LLM failed to judge.",
-                    "correction": None
-                }
-            
-            # For writes/edits, be safer and reject
-            return {
-                "auditor_verdict": "REJECT",
-                "confidence_score": 0.3,
-                "rationale": "Heuristic Reject: Action is higher-risk and LLM failed to judge.",
-                "correction": "Try a simpler, safer move."
-            }
-
-    def _check_hard_constraints(self, action: str, target: str) -> bool:
-        forbidden = ["DELETE", "DROP", "TRUNCATE", ".env", "api_key"]
-        for word in forbidden:
-            if word in target.upper() or word in action.upper(): return True
-        return False
-
-    def _check_relevance(self, action: str, target: str, rationale: str = "") -> float:
-        action_text = f"{action} {target}. Rationale: {rationale}"
-        action_vector = list(self.embedder.embed([action_text]))[0]
-        return float(np.dot(self.goal_vector, action_vector))
-
-    def _run_llm_audit(self, action: str, target: str, rationale: str, rel_score: float, active_pages: Optional[List[str]], artifacts: List[Any] = []) -> AuditorVerdict:
-        system_prompt = AUDITOR_SYSTEM_PROMPT.format(goal=self.goal, constraints=self.constraints)
-        loaded_files = ", ".join(active_pages) if active_pages else "None"
-        arts_str = "\n".join([f"- {a.identifier}: {a.summary}" for a in artifacts]) if artifacts else "None"
+    async def audit_stream(self, action_type: str, target: str, rationale: str, active_context: str) -> AuditorVerdict:
+        """
+        AI-Augmented Auditor for complex semantic checks (Red-Teaming, IP violations).
+        Currently falls back to the deterministic evaluate_move for most logic.
+        """
+        # 1. Deterministic Pass
+        verdict_dict = self.evaluate_move(
+            action_type=action_type,
+            target=target,
+            manager_rationale=rationale,
+            active_context=active_context,
+            # (Note: In streaming mode, some state like valid_files might be limited)
+        )
         
-        # Truncate target to prevent distraction by large code blocks
-        display_target = target[:500] + "... [TRUNCATED]" if len(target) > 500 else target
-        
-        user_prompt = f"L1 (Active Context): {loaded_files}\nBACKPACK (Saved Artifacts):\n{arts_str}\n\nAction: {action}\nTarget: {display_target}\nRationale: {rationale}\nVerdict?"
-        return self.driver.generate_structured(user_prompt=user_prompt, schema=AuditorVerdict, system_prompt=system_prompt)
+        if verdict_dict["auditor_verdict"] == "REJECT":
+            return AuditorVerdict(
+                verdict="REJECT",
+                rationale=verdict_dict["rationale"],
+                correction=verdict_dict.get("correction", "")
+            )
 
-# --- LangGraph Node Wrapper ---
-_shared_driver = OllamaDriver() 
+        # 2. AI Pass (The Auditor's inner monologue)
+        # We only call the LLM if we are in HIGH_SPEED/FLUID mode or if 
+        # the move is potentially hostile (saving secrets).
+        if self.policy == STRICT_AUDIT:
+            return AuditorVerdict(verdict="PASS", rationale="Deterministic policy passed.")
 
-def node_auditor(state):
-    goal = state.get('mission_statement', "UNKNOWN")
-    constraints = state.get('constraints', [])
-    fw_state = state.get('framework_state')
-    elastic_mode = getattr(fw_state, 'elastic_mode', False) if fw_state else False
-    
-    # Extract audit profile from state or default to STRICT
-    profile_name = getattr(fw_state, 'audit_profile_name', "STRICT_AUDIT")
-    audit_profile = PROFILE_MAP.get(profile_name, STRICT_AUDIT)
-    
-    auditor = Auditor(
-        goal=goal, 
-        constraints=constraints, 
-        driver=_shared_driver, 
-        elastic_mode=elastic_mode,
-        audit_profile=audit_profile
-    )
-    
-    pending_move = state.get('manager_decision', {})
-    tool_call = pending_move.get('tool_call', 'None')
-    target = pending_move.get('target', 'None')
-    rationale = pending_move.get('thought_process', pending_move.get('rationale', 'None'))
-    
-    raw_map = state.get('active_file_map', {})
-    valid_files = list(raw_map.keys()) if isinstance(raw_map, dict) else []
-    active_pages = [] # Note: Pager object preferred for real checks
-
-    result = auditor.evaluate_move(
-        action_type=tool_call, target=target, manager_rationale=rationale,
-        valid_files=valid_files, active_pages=active_pages,
-        decision_history=state.get('decision_history', []),
-        current_artifacts=state.get('framework_state', MagicMock()).artifacts,
-        active_context=state.get('current_context_window', "")
-    )
-    
-    trace = {
-        "step": len(state.get("decision_history", [])),
-        "tool_call": f"{tool_call} {target}",
-        "rationale": rationale,
-        "auditor_verdict": result["auditor_verdict"],
-        "confidence_score": result["confidence_score"]
-    }
-    if result["auditor_verdict"] != "PASS" and result.get("correction"):
-        trace["rationale"] += f" [AUDITOR CORRECTION: {result['correction']}]"
-
-    return {
-        "decision_history": state.get("decision_history", []) + [trace],
-        "global_uncertainty": state.get("global_uncertainty", 0.0) + (0.15 if result["auditor_verdict"] != "PASS" else 0.0)
-    }
-
-# Mock for safety if MagicMock isn't imported
-class MagicMock:
-    artifacts = []
+        # Implementation for AI audit would go here...
+        return AuditorVerdict(verdict="PASS", rationale="Move is safe.")

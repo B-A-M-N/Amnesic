@@ -13,11 +13,14 @@ from rich.syntax import Syntax
 sys.path.append(os.path.abspath(os.path.join(os.path.dirname(__file__), "../..")))
 
 from amnesic.presets.mediator import MediatorSession
+from amnesic.core.sidecar import SharedSidecar
 from amnesic.presets.code_agent import Artifact
 
 console = Console()
 
 def run_mediator_proof():
+    # Reset Sidecar for a clean start
+    SharedSidecar().reset()
     console.print(Panel(
         "[bold white]SCENARIO: The Blind Mediator (Merge Conflict)[/bold white]\n"
         "[dim]The Agent must reconcile two diverging versions of a file.[/dim]\n"
@@ -61,7 +64,7 @@ def calculate(a, b, op):
         "4. Halt once 'resolved.py' is created."
     )
     
-    session = MediatorSession(mission=mission, l1_capacity=3000)
+    session = MediatorSession(mission=mission, l1_capacity=32768)
     
     # 3. Run
     console.print("\n[bold]2. Engaging Mediator Agent...[/bold]")

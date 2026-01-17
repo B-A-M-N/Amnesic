@@ -11,7 +11,7 @@ from rich.syntax import Syntax
 sys.path.append(os.path.abspath(os.path.join(os.path.dirname(__file__), "../../")))
 from amnesic.core.session import AmnesicSession
 
-noise = "NOISE_BUFFER " * 1200
+noise = "NOISE_BUFFER " * 15000
 
 def run_code_advanced_proof():
     console = Console()
@@ -35,7 +35,12 @@ def run_code_advanced_proof():
         "If the MISSION asks for VAL_A but you see 'not_val_a' in [CURRENT L1 CONTEXT CONTENT], use it."
     )
     
-    session = AmnesicSession(mission=mission, l1_capacity=3000, strategy=intent_strategy)
+    session = AmnesicSession(
+        mission=mission,
+        root_dir=".",
+        l1_capacity=32768,
+        recursion_limit=50
+    )
     
     # Visual Confirmation of Architecture (Boot Sequence)
     session.visualize()

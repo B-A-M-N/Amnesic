@@ -35,7 +35,7 @@ Standard agents fail at long tasks because their "chat history" gets too long an
 | :--- | :--- | :--- |
 | **Memory** | Opaque Chat History | Structured Artifact Store |
 | **Integrity** | Prone to Drift | Physically Immune to History Poisoning |
-| **Trust** | Prompt-based instructions | Validator-enforced Invariants |
+| **Trust** | Prompt-based instructions | Validator-enforced Invariants (Configurable) |
 
 ---
 
@@ -45,7 +45,7 @@ Standard agents fail at long tasks because their "chat history" gets too long an
 Code is not prose. Amnesic uses **Abstract Syntax Trees** to extract "Semantic Skeletons" of your code. This allows the agent to throw away raw text but still "know" your function signatures and dependencies.
 
 ### 2. The Physical Validator (Auditor)
-The Auditor checks every move *before* it happens. If the model tries to "hallucinate" a success or violate a file-system constraint, the move is physically blocked.
+The Auditor checks every move *before* it happens. If the model tries to "hallucinate" a success or violate a file-system constraint, the move is physically blocked. This validation pipeline is configurable via **Audit Profiles**.
 
 ---
 
@@ -79,25 +79,45 @@ By default, Amnesic enforces a **Strict One-File** policy. For tasks requiring c
 session = AmnesicSession(..., elastic_mode=True)
 ```
 
-### 3. Eviction Policies & Document Purging
-You can inject deterministic rules to force context wipes based on specific state conditions.
+### 4. Asymmetric Multi-Agent Workflows
+Amnesic supports running multiple agents with radically different "cognitive profiles" in the same pipeline. While they share a global **Sidecar**, their internal context protocols remain isolated.
+
+*   **Agent A (The Scout)**: Low-capacity (512 tokens), `eviction_strategy="on_save"`. Ideal for high-speed, low-cost data extraction.
+*   **Agent B (The Integrator)**: High-capacity (10k tokens), `elastic_mode=True`, `eviction_strategy="manual"`. Ideal for complex synthesis.
 
 ```python
-from amnesic.core.policies import KernelPolicy
+# scout = AmnesicSession(l1_capacity=512, eviction_strategy="on_save", sidecar=shared_brain)
 
-# Force-purge context if a 'THREAT' artifact is found
-purge_policy = KernelPolicy(
-    name="EmergencyWipe",
-    condition=lambda state: any("THREAT" in a.identifier for a in state.artifacts),
-    reaction=lambda state: ManagerMove(
-        thought_process="Threat detected. Wiping context.",
-        tool_call="unstage_context",
-        target="ALL"
-    )
-)
-
-session = AmnesicSession(..., policies=[purge_policy])
+# Integrator Agent: Holds multiple artifacts in RAM for synthesis
+# integrator = AmnesicSession(l1_capacity=10000, elastic_mode=True, sidecar=shared_brain)
 ```
+
+### 5. Stateful Phase Transitions
+Complex missions often require changing focus. Amnesic maintains a persistent **Policy State** across checkpoints.
+
+*   **Warm Up:** Use Flow Policies to auto-load context.
+*   **Lock Down:** Use `enable_policy` to activate safety rails when entering sensitive phases.
+
+```python
+# Enable a custom "Review Formatting" policy mid-mission
+session.enable_policy("ReviewFormat")
+```
+
+### 6. Performance Tuning (Fluid Mode)
+In standard "Strict Mode," every action (even just reading a file) is double-checked by a secondary LLM call, trading latency for perfect safety. For trusted environments or rapid scouting, use **Fluid Mode**.
+
+*   **Fluid Read**: Uses vector-based heuristics to instantly approve safe read operations, cutting latency by 50%.
+*   **Strict Write**: Writes are *always* audited by the LLM, regardless of mode.
+*   **Dynamic Switching**: Agents can switch modes mid-mission using `set_audit_policy`.
+
+```python
+# Start fast for scouting, then let the agent switch to strict for coding
+session = AmnesicSession(
+    ...,
+    audit_profile="FLUID_READ" 
+)
+```
+
 
 ---
 

@@ -26,7 +26,7 @@ def debug_standard_agent():
     with open("vault_2.txt", "w") as f: f.write(f"ID_Y: {val_b}\n{noise}")
     
     mission = f"MISSION: Multiply ID_X ({val_a}) and ID_Y ({val_b})."
-    std = StandardReActAgent(mission, token_limit=1200)
+    std = StandardReActAgent(mission, token_limit=32768)
     
     # We intercept the driver.generate_structured call to see raw
     original_gen = std.driver.generate_structured
@@ -57,7 +57,7 @@ def debug_amnesic_agent():
     
     val_a, val_b = 593, 886
     mission = f"MISSION: Multiply ID_X ({val_a}) and ID_Y ({val_b})."
-    session = AmnesicSession(mission=mission, l1_capacity=1200)
+    session = AmnesicSession(mission=mission, l1_capacity=32768)
     
     # Intercept Amnesic Driver
     original_gen = session.driver.generate_structured

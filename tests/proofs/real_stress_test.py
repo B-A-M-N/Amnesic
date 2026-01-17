@@ -41,8 +41,9 @@ def run_real_stress_test():
     
     files = generate_files()
     
-    # Capacity 300: Forces eviction on 2nd file load (157 + 152 > 300)
-    pager = DynamicPager(capacity_tokens=300)
+    # Capacity 1000: Forces eviction on 3rd file load (each file is ~525 tokens with safety margin)
+    # 500 was too tight with the new 1.75x multiplier.
+    pager = DynamicPager(capacity_tokens=1000)
     
     # Use a mock "Memory" to track what the Agent *knows* (vs what is in Context)
     agent_memory = {}
@@ -50,6 +51,7 @@ def run_real_stress_test():
     try:
         # --- STEP 1: Load START ---
         console.print("\n[bold blue]1. Agent loads start.txt[/bold blue]")
+        pager.tick()
         with open("start.txt") as f: content = f.read()
         pager.request_access("file:start.txt", content)
         
@@ -62,12 +64,14 @@ def run_real_stress_test():
 
         # --- STEP 2: Load MIDDLE 1 ---
         console.print("\n[bold blue]2. Agent loads middle_1.txt[/bold blue]")
+        pager.tick()
         with open("middle_1.txt") as f: content = f.read()
         pager.request_access("file:middle_1.txt", content)
         console.print(f"   [dim]L1 Usage: {pager.current_usage}/500[/dim]")
 
         # --- STEP 3: Load MIDDLE 2 (Forces Eviction) ---
         console.print("\n[bold blue]3. Agent loads middle_2.txt (Forces Eviction)[/bold blue]")
+        pager.tick()
         with open("middle_2.txt") as f: content = f.read()
         pager.request_access("file:middle_2.txt", content)
         
@@ -79,6 +83,7 @@ def run_real_stress_test():
 
         # --- STEP 4: Load END ---
         console.print("\n[bold blue]4. Agent loads end.txt[/bold blue]")
+        pager.tick()
         with open("end.txt") as f: content = f.read()
         pager.request_access("file:end.txt", content)
         

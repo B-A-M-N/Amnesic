@@ -57,7 +57,7 @@ class TestModuleConstruction(unittest.TestCase):
         """Verify VectorStore initializes with collections."""
         mock_driver = MagicMock()
         store = VectorStore(driver=mock_driver)
-        self.assertEqual(store.driver, mock_driver)
+        # Driver is not stored in self.driver anymore
         self.assertIn("code", store.collections)
         self.assertIn("text", store.collections)
 

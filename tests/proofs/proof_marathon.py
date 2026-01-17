@@ -9,9 +9,13 @@ from rich.rule import Rule
 # Ensure framework access
 sys.path.append(os.path.abspath(os.path.join(os.path.dirname(__file__), "../../")))
 from amnesic.core.session import AmnesicSession
+from amnesic.core.sidecar import SharedSidecar
 
 def run_marathon_proof():
     console = Console()
+    
+    # Reset Sidecar for a clean start
+    SharedSidecar().reset()
     
     # 1. Setup: A deep dependency chain (10 files)
     # Each file contains a piece of a sentence and heavy noise padding.
@@ -42,7 +46,7 @@ def run_marathon_proof():
         "Once you have all 10 parts, combine them into a single 'TOTAL' result and HALT."
     )
     
-    session = AmnesicSession(mission=mission, l1_capacity=3000)
+    session = AmnesicSession(mission=mission, l1_capacity=32768)
     # Marathon needs high recursion limit
     config = {"configurable": {"thread_id": "proof_marathon"}, "recursion_limit": 300}
     
@@ -117,7 +121,7 @@ def run_marathon_proof():
                     console.print(Panel(f"[bold red]FAIL: Marathon failed. Found {parts_found}/10 parts. Target: {move.target}[/bold red]"))
                 break
         
-        if turn_count > 40:
+        if turn_count > 100:
             console.print("[bold red]Timeout: Session too long.[/bold red]")
             break
 

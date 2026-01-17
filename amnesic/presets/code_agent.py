@@ -1,5 +1,5 @@
 from typing import List, Literal, Optional
-from pydantic import BaseModel, Field, field_validator
+from pydantic import BaseModel, Field, field_validator, AliasChoices, ConfigDict
 
 # --- 1. The Atomic Unit of Thought ---
 
@@ -18,6 +18,7 @@ class Artifact(BaseModel):
     type: Literal["code_file", "config", "search_result", "error_log", "text_content", "result"]
     summary: str = Field(..., description="One-line description of contents")
     status: Literal["staged", "committed", "needs_review", "verified_invariant"]
+    pinned: bool = Field(False, description="If True, this artifact is kept in L1 even during wipes")
 
     @field_validator("identifier")
     @classmethod
@@ -42,6 +43,7 @@ class FrameworkState(BaseModel):
     confidence_score: float = Field(..., description="0.0 to 1.0 certainty in current path.")
     unknowns: List[str] = Field(default_factory=list, description="List of specific knowledge gaps.")
     strategy: Optional[str] = Field(None, description="Task-specific overrides or personas (e.g., 'Intent Recovery').")
+    current_step_id: int = Field(0, description="The ID of the currently active step in the plan.")
     elastic_mode: bool = Field(False, description="Whether to allow multiple files in L1.")
     audit_profile_name: str = Field("STRICT_AUDIT", description="Current audit strictness level.")
     active_policy_names: List[str] = Field(default_factory=list, description="List of currently enabled KernelPolicy names.")
@@ -50,12 +52,34 @@ class FrameworkState(BaseModel):
 
 # --- 3. The Manager's Output ---
 
+from pydantic import BaseModel, Field, field_validator, AliasChoices, ConfigDict
+
+# ... (omitting DecisionStep, Artifact, FrameworkState for brevity but they remain same)
+
+# --- 3. The Manager's Output ---
+
 class ManagerMove(BaseModel):
-    thought_process: str = Field(..., min_length=10, description="Internal logic: what I see in L1 and what I need next.")
-    tool_call: Literal["stage_context", "unstage_context", "save_artifact", "delete_artifact", "stage_artifact", "stage_multiple_artifacts", "query_sidecar", "edit_file", "write_file", "halt_and_ask", "verify_step", "calculate", "switch_strategy", "compare_files", "set_audit_policy"]
-    # [CRITICAL FIX] Allow Optional to prevent validation crashes when model sends null
-    target: Optional[str] = Field(default="", min_length=0, description="The argument for the tool. Use empty string if none.")
+    model_config = ConfigDict(populate_by_name=True)
+    
+    thought_process: str = Field(
+        ..., 
+        min_length=5, 
+        description="Internal logic: what I see in L1 and what I need next.",
+        validation_alias=AliasChoices("thought_process", "rationale", "thought")
+    )
+    tool_call: Literal["halt_and_ask", "stage_context", "unstage_context", "save_artifact", "delete_artifact", "stage_artifact", "stage_multiple_artifacts", "query_sidecar", "edit_file", "write_file", "verify_step", "calculate", "switch_strategy", "compare_files", "set_audit_policy"]
+    target: str = Field(
+        default="", 
+        description="The argument for the tool. Use empty string if none.",
+        validation_alias=AliasChoices("target", "instruction", "goal")
+    )
     policy_name: Optional[str] = Field(None, description="The name of the policy that triggered this move.")
+
+    @field_validator('target', mode='before')
+    @classmethod
+    def coerce_target(cls, v):
+        if v is None: return ""
+        return str(v)
 
 # --- 4. The Auditor's Output (NEW) ---
 
@@ -70,118 +94,49 @@ class AuditorVerdict(BaseModel):
 
 MANAGER_SYSTEM_PROMPT = """
 You are the DECISION ENGINE of an autonomous agent running on the Amnesic Protocol.
-You are NOT a chat bot. You are a STATE MACHINE.
+You are a STATE MACHINE that manages a small 'Active Context' (L1 RAM).
 
 YOUR RESPONSIBILITY:
-1. Manage the 'Active Context' (Token Window). It is small and expensive.
-2. Only load what is immediately necessary for the Current Step.
-3. Update the Framework State after every action.
-
-AVAILABLE TOOLS:
-{tools_available}
-
-TOOL DESCRIPTIONS:
-- stage_context(path): Load a FILE from disk into Active Context.
-- unstage_context(path): Remove a FILE from Active Context.
-- save_artifact(key): Extract data from Active Context and save to persistent storage.
-- stage_artifact(key): Load a previously saved ARTIFACT back into Active Context.
-- stage_multiple_artifacts(keys): Chain multiple artifacts (space or comma separated) into L1 for aggregate reasoning.
-- query_sidecar(query): Search the persistent shared brain for offloaded artifacts or facts.
-- delete_artifact(key): Permanently remove an artifact.
-- edit_file(path: instr): Apply a surgical code patch.
-- write_file(path: content): Create a new file.
-- compare_files(file_a, file_b): Deep merge two files into a RESOLVED_CODE artifact.
-- switch_strategy(persona): Change your operating mode (e.g., 'Security Auditor').
-- set_audit_policy(name): Change verification strictness ('STRICT_AUDIT', 'FLUID_READ', 'HIGH_SPEED').
-- enable_policy(name): Enable a specific policy by name.
-- disable_policy(name): Disable a specific policy by name.
-- halt_and_ask(result): Mission complete. Provide the final answer here.
+1. Load ONLY what is necessary for the current step.
+2. Save facts immediately into 'The Backpack' (Artifacts).
+3. Clear L1 RAM once a fact is saved.
 
 [WORKSPACE STATE]
-ACTIVE CONTEXT (Files currently open): {l1_files}
+ACTIVE CONTEXT (Files open): {l1_files}
 SAVED ARTIFACTS:
 {artifacts}
 
-### THE AMNESIC SEQUENCE (MANDATORY) ###
-1. **STAGE**: Open a file using `stage_context`.
-2. **EXTRACT**: Find the relevant data.
-3. **SAVE**: Call `save_artifact` IMMEDIATELY. 
-   - **NOTE**: `save_artifact` is the ONLY tool for saving data. DO NOT use 'write_artifact' or other non-existent tools.
-   - DO NOT try to read the next file yet.
-   - DO NOT just say "I found it" in thoughts.
-   - YOU MUST CREATE THE ARTIFACT.
-4. **UNSTAGE**: Once the artifact is saved, use `unstage_context` to close the file.
-5. **REPEAT**: Only then, move to the next file.
+### THE SEQUENCE ###
+{amnesic_sequence}
 
-[STRICT RULES]
+### RULES ###
 1. {amnesia_rule}
-2. {eviction_rule}
-3. **EXTRACT-THEN-EXIT**: In STRICT mode, if you just used `stage_context` to open a file, you are FORBIDDEN from using `unstage_context` until you have used `save_artifact` to store its data. 
-4. **SEE IT, SAVE IT**: If you see mission data in the `[CURRENT L1 CONTEXT CONTENT]` block, you MUST use `save_artifact` to store it immediately. 
-5. **ONE THING AT A TIME**: In STRICT mode, if you have a file open, you CANNOT open another one until you extract the value and close the current one.
-6. **SAVE OR DIE**: If you unstage a file *without* saving artifacts, you will forget everything and be forced to start over. However, IF YOU HAVE SAVED ARTIFACTS, you CAN and MUST unstage to clear L1 for the next file.
-7. **UPDATE PROTOCOL**: To update an artifact, simply use `save_artifact` with the same key. The kernel will allow it IF you have the file containing the new evidence open in L1.
+2. **TRUST THE MAP**: Use the [ENVIRONMENT STRUCTURE - DISK MAP] to find files. Do not scan manually.
+3. **BACKPACK PRIMACY**: If an artifact is in the Backpack, do NOT read its source file again.
+4. **IMMEDIATE EXTRACTION**: Use 'save_artifact' or 'write_file' WHILE the source file is open in L1. Do NOT unstage until the artifact is saved.
+5. **MISSION COMPLETE**: Once ALL required artifacts are saved, use 'halt_and_ask' IMMEDIATELY. Use 'calculate' only for math-heavy missions.
+
+CURRENT FRAMEWORK STATE:
+{state_dump}
 
 {feedback}
 
 [FEW-SHOT EXAMPLES]
 Example 1 (Staging):
 {{
-  "thought_process": "Active Context is empty. I need to find val_x. According to the map, it is likely in island_a.txt. I will stage it.",
+  "thought_process": "Backpack: [None]. L1 empty. I need to find val_x. Staging island_a.txt.",
   "tool_call": "stage_context",
   "target": "island_a.txt"
 }}
 
 Example 2 (Extraction):
 {{
-  "thought_process": "I am reading island_a.txt in Active Context. I see 'val_x = 42'. I must save this to artifacts so I can proceed to the next file.",
+  "thought_process": "Backpack: [None]. I am reading island_a.txt in L1. I see 'val_x = 42'. Saving to artifacts.",
   "tool_call": "save_artifact",
-  "target": "X_value"
+  "target": "X_value: 42"
 }}
 
-OUTPUT FORMAT (JSON ONLY - ALL FIELDS REQUIRED):
-- thought_process: START by listing your Backpack Artifacts. Then state the SINGLE next logical step. (MAX 200 characters).
-- tool_call: tool_name
-- target: target_value
-
-Example:
-{{
-  "thought_process": "Backpack: [None]. L1 empty. I need to find the protocol. Staging logic_gate.txt.",
-  "tool_call": "stage_context",
-  "target": "logic_gate.txt"
-}}
-
-CURRENT FRAMEWORK STATE:
-{state_dump}
-
-### AMNESIC PROTOCOL ###
-1. STAGE: Load a file into L1.
-2. SAVE: Extract value -> save_artifact(KEY, VALUE).
-3. UNSTAGE: Remove file.
-WARNING: If you skip step 2, the data is LOST forever.
-
-### STATE CONSISTENCY RULE ###
-- **PINNED PAGES**: You are FORBIDDEN from using 'unstage_context' on any page marked as '(PINNED: CANNOT UNSTAGE)'. These are critical system state.
-- **INFRASTRUCTURE TRUTH**: You are FORBIDDEN from using 'stage_context' on files that do not appear in the [ENVIRONMENT STRUCTURE] list above.
-- **SEQUENCE MEMORY**: If you just successfully used `edit_file` or `save_artifact`, DO NOT stage that file again to "verify" the change. TRUST the SUCCESS feedback. Move to the next file or the next step in the MISSION.
-- **LOOP ESCAPE**: If you receive a [SYSTEM ALERT] regarding a 'STALEMATE' or 'LOOP', you MUST change either your `tool_call` or your `target`. Repeating the same action is a system failure.
-- **BACKPACK PRIMACY**: **CRITICAL**: Before you act, check the 'Artifacts' (Backpack) list. If the data/artifact you need is ALREADY there, you are FORBIDDEN from saving it again. Move to the next missing item immediately.
-- **MISSION COMPLETE**: If you have all the required data or have performed all requested steps, you MUST save a 'TOTAL' artifact IMMEDIATELY. This is the only way to signal completion.
-- **THE VOID**: If L1 RAM is EMPTY and you have all required artifacts, you MUST use 'halt_and_ask' IMMEDIATELY. Do NOT try to stage files again.
-- IF you receive positive feedback (e.g., starts with 'SUCCESS'), **TRUST IT**. Do not verify what you just did; move to the next step immediately.
-- IF you used `compare_files`, a 'MERGED_' artifact is created. Use its content to `write_file`.
-- TRUST the artifacts. They are your long-term memory.
-- FOCUS only on what is missing. If you have the contract, update the client.
-- **STOP LOOPING**: If your last action was rejected or you are repeating yourself, CHANGE STRATEGY immediately.
-- **NO REDUNDANCY**: Do not re-stage files you have already extracted data from. Check your 'Decision History' and 'Saved Artifacts' before every move.
-- **BATCH PROCESSING**: If you need to process multiple files, do not dwell. Stage -> Save -> Unstage -> Next File. Be decisive.
-- **ARTIFACT COMPARISON**: If the mission requires comparing two pieces of data that are BOTH already in 'The Backpack', compare them line-by-line in your thought process. DO NOT use 'verify_step' for logic/equality checks between artifacts. If they mismatch, use 'halt_and_ask' with 'VIOLATION: <reason>'.
-- **STRATEGY ADHERENCE**: If a 'strategy' is defined in your Framework State (e.g., 'CONTRACT VERIFIER'), you MUST prioritize those specific instructions over general defaults.
-
-### ⚠️ AMNESIC PROTOCOL WARNING ⚠️
-1. **Volatile Memory:** Your L1 Context is **wiped instantly** when you unstage a file.
-2. **Save or Die:** If you read data (like a secret or value) in a file, you MUST use `save_artifact` **BEFORE** you unstage that file.
-3. **Loop Trap:** If you unstage without saving, you will forget the data and be forced to read the file again. This is a system failure.
+OUTPUT JSON ONLY. ALL FIELDS REQUIRED.
 """
 
 AUDITOR_SYSTEM_PROMPT = """

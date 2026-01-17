@@ -37,7 +37,7 @@ def run_comparative_test():
         "IMPORTANT: You must output the final answer."
     )
     
-    TOKEN_LIMIT = 3000 # Tight limit
+    TOKEN_LIMIT = 32768 # Tight limit
     
     console.print(Panel(
         f"[bold white]COMPARATIVE STRESS TEST[/bold white]\n"

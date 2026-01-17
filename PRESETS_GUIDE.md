@@ -43,7 +43,7 @@ class MyCustomSession(AmnesicSession):
 
 ---
 
-## The Three Levers of a Preset
+## The Four Levers of a Preset
 
 ### Lever 1: The Behavioral Protocol (The Prompt)
 This is the most powerful tool. By injecting "Infrastructure Truth" into the `mission`, you change how the Manager decides and how the Auditor judges.
@@ -65,6 +65,48 @@ def _setup_default_tools(self):
 def _tool_scan(self, target: str):
     # Implementation logic here...
     self.state['framework_state'].last_action_feedback = "Scan Complete: 0 vulnerabilities."
+```
+
+### Lever 4: Audit Profiles
+You can control the "paranoia level" of your preset by configuring the `audit_profile`.
+
+*   **STRICT_AUDIT (Default):** Every move is double-checked by an LLM. Use for: Writing code, deleting files, managing secrets.
+*   **FLUID_READ:** Skips the LLM check for read-only actions if they are relevant. Use for: Scouting, Code Analysis, Search Agents.
+*   **HIGH_SPEED:** Fast for almost everything except critical system files. Use for: Prototyping.
+
+### Advanced: Custom Audit Profiles
+If the default profiles are too rigid, you can define your own.
+
+```python
+from amnesic.core.audit_policies import AuditProfile
+
+# A profile that allows saving artifacts without nagging, but blocks all edits
+LAX_OFFLOAD = AuditProfile(
+    name="LAX_OFFLOAD",
+    fast_path_actions=["save_artifact", "stage_context"],
+    relevance_threshold=0.2,
+    strict_actions=["write_file", "edit_file"]
+)
+
+class DataMiningSession(AmnesicSession):
+    def __init__(self, mission: str, **kwargs):
+        super().__init__(
+            mission=mission,
+            audit_profile="LAX_OFFLOAD", # Start in this mode
+            custom_audit_profiles={"LAX_OFFLOAD": LAX_OFFLOAD}, # Register it
+            **kwargs
+        )
+```
+
+```python
+class ScoutSession(AmnesicSession):
+    def __init__(self, mission: str, **kwargs):
+        # Starts in FLUID mode for fast analysis
+        super().__init__(
+            mission=mission, 
+            audit_profile="FLUID_READ",
+            **kwargs
+        )
 ```
 
 ---
@@ -92,7 +134,7 @@ class RefactorSession(AmnesicSession):
 ---
 
 ## How to Verify Your Preset
-Always create a **Proof** file in `tests/proofs/proof_your_preset.py`. 
+Always create a **Proof** file in `tests/proofs/proof_your_preset.py`.
 
 1.  **Define a Scenario:** Create a temporary file that represents the "messy" input.
 2.  **Initialize Preset:** Instantiate your `CustomSession`.

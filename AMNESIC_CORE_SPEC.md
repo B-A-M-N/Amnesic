@@ -26,6 +26,17 @@ Every move the agent makes is checked by a **Validator**. The validator doesn't 
 
 ---
 
+## Asymmetric Isolation (Multi-Agent)
+
+The protocol distinguishes between **Session Configuration** and **Global Knowledge**:
+
+1.  **Local Configuration (The Machine)**: `l1_capacity`, `eviction_strategy`, and `elastic_mode` are unique to each `AmnesicSession`. This allows for specialized "Machine Types" (e.g., Scouts vs. Refactors) to operate in the same environment.
+2.  **Global Knowledge (The Sidecar)**: All agents in an environment share a single `SharedSidecar`. This ensures that any fact saved by one agent is instantly discoverable by all others, regardless of their individual context protocols.
+
+This categorical separation enables "Relay Reasoning," where one agent prepares the context window for another using a completely different set of amnesic constraints.
+
+---
+
 ## Architecture vs. Orchestration
 
 Amnesic is not an orchestrator. Orchestrators route tasks; **Amnesic constrains cognition.** 
@@ -40,6 +51,35 @@ To maintain truth, the system draws a hard line between two types of data:
 
 1.  **Artifacts (Authoritative State):** These are the only things the agent "knows." They are symbolic, structured, and treated as ground truth.
 2.  **Vectors (Heuristic Search):** These are just maps to help the agent find which file to look at. They are never used as a source of truth for reasoning.
+
+---
+
+## Dynamic Policy Control
+
+Amnesic allows for **Stateful Policy Activation**. The Rules of Engagement (Policies) are part of the state, meaning they persist across checkpoints and can be toggled by the agent or the user.
+
+*   `enable_policy(name)`: Activates a specific KernelPolicy.
+*   `disable_policy(name)`: Deactivates it.
+*   `set_audit_policy(profile)`: Switches the Auditor's strictness profile (e.g., from `FLUID_READ` to `STRICT_AUDIT`).
+
+This enables **Phased Workflows**:
+1.  **Phase 1 (Scout):** Disable strict checks, use `FLUID_READ`. Fill context fast.
+2.  **Phase 2 (Architect):** Enable custom policies (e.g., `EnforceJSON`), switch to `STRICT_AUDIT`. Offload data carefully.
+3.  **Phase 3 (Coder):** Standard operating mode.
+
+---
+
+## The Validation Hierarchy
+
+The **Auditor** is not a simple "Yes/No" switch. It is a layered defense system that filters actions based on risk and relevance.
+
+1.  **Layer -5 (Tool Enforcement):** Blocks tools forbidden by the current mode.
+2.  **Layer -4 (Semantic Hygiene):** Enforces naming conventions for artifacts (Snake Case).
+3.  **Layer -3 (Idempotency):** Prevents infinite loops by blocking redundant saves.
+4.  **Layer 0 (Infrastructure):** Verifies file existence and memory limits (RAM).
+5.  **Layer 2 (Relevance):** Vector embedding check. Is this action relevant to the goal?
+6.  **Layer 2.5 (Fast Path):** If in `FLUID_READ` mode and relevance is high, safe actions (reads) skip the LLM check.
+7.  **Layer 3 (LLM Judge):** The final semantic arbiter. Checks for hallucinations and logic errors.
 
 ---
 
