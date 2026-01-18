@@ -1,139 +1,131 @@
 # Amnesic Protocol
 
-**Amnesic** is a context-management protocol for LLM agents. It enables reliable long-horizon reasoning by physically preventing "Context Drift." It treats the LLM context window as disposable RAM and forces all permanent knowledge into structured **Artifacts**.
+**Amnesic** is a context-management protocol that enables Large Language Models (LLMs) to perform complex, long-horizon software engineering tasks with high reliability. It achieves this by replacing the traditional "chat history" with a rigorous system of **Explicit State** and **Physical Invariants**.
 
-## 30-Second Quickstart
-
-```python
-from amnesic import AmnesicSession
-
-# 1. Initialize a session with a strictly bounded context (e.g., 2000 tokens)
-session = AmnesicSession(
-    mission="Find the bug in ./src/logic.py and fix it.",
-    root_dir="./src",
-    l1_capacity=2000
-)
-
-# 2. Run the amnesic loop (Map -> Read -> Extract -> Commit -> Forget)
-session.run()
-```
-
-## The Amnesic Rules (Plain English)
-
-1.  **Explicit Context Control:** The agent's focus is a choice. Data is explicitly staged and just as explicitly ejected.
-2.  **Take good notes (The Backpack):** Before moving to a new task, the agent must save important facts as **Artifacts**.
-3.  **Wipe the slate clean:** Once a fact is saved, the raw source text is wiped from context. No history, no clutter.
-4.  **Verify before acting:** Every move is checked by a **Validator** to ensure rules are followed and no hallucinations occur.
+Unlike standard agents that "drift" as their context window fills with noise, an Amnesic agent treats its context window as disposable RAM. It must explicitly "learn" (extract artifacts) and "forget" (clear context) to maintain perfect focus over thousands of steps.
 
 ---
 
-## Why this exists: Correctness > Fluency
+## 🚀 The Core Philosophy
 
-Standard agents fail at long tasks because their "chat history" gets too long and noisy. **Amnesic** replaces history with **Authoritative State**.
-
-| Feature | Standard ReAct | Amnesic Protocol |
-| :--- | :--- | :--- |
-| **Memory** | Opaque Chat History | Structured Artifact Store |
-| **Integrity** | Prone to Drift | Physically Immune to History Poisoning |
-| **Trust** | Prompt-based instructions | Validator-enforced Invariants (Configurable) |
-
----
-
-## Core Concepts
-
-### 1. Authoritative State (AST)
-Code is not prose. Amnesic uses **Abstract Syntax Trees** to extract "Semantic Skeletons" of your code. This allows the agent to throw away raw text but still "know" your function signatures and dependencies.
-
-### 2. The Physical Validator (Auditor)
-The Auditor checks every move *before* it happens. If the model tries to "hallucinate" a success or violate a file-system constraint, the move is physically blocked. This validation pipeline is configurable via **Audit Profiles**.
+1.  **Amnesia is a Feature:** The agent's memory is wiped after every significant action. This forces it to externalize all necessary information into structured **Artifacts** (The Backpack).
+2.  **Physical Invariants:** Safety and correctness are enforced by code, not just prompts. If an agent tries to read a file without clearing its memory, the system *physically blocks* the action.
+3.  **The Trinity Architecture:**
+    *   **Manager (The Brain):** The LLM that decides *what* to do.
+    *   **Auditor (The Conscience):** A deterministic policy engine that decides if the move is *safe* and *relevant*.
+    *   **Executor (The Hands):** The code that actually touches the file system.
 
 ---
 
-## Advanced Usage
+## ⚡ Quickstart
 
-### 1. Building Your Own Agent
-Amnesic is a substrate for specialized cognitive personalities. Use **Strategies** to define how the agent extracts data.
+### Installation
 
-```python
-from amnesic import AmnesicSession
-
-# 1. Define a Persona/Strategy
-strategy = "PERSONA: Security Auditor. PRIORITY: Find hardcoded keys."
-
-# 2. Initialize Session
-session = AmnesicSession(
-    mission="Audit the ./src directory for secrets.",
-    root_dir="./src",
-    strategy=strategy,
-    l1_capacity=4000
-)
-
-session.run()
-```
-
-### 2. Custom Context Management (Elastic Mode)
-By default, Amnesic enforces a **Strict One-File** policy. For tasks requiring cross-document reasoning, enable **Elastic Mode**.
-
-```python
-# Allows multiple files to coexist in context up to the token limit
-session = AmnesicSession(..., elastic_mode=True)
-```
-
-### 4. Asymmetric Multi-Agent Workflows
-Amnesic supports running multiple agents with radically different "cognitive profiles" in the same pipeline. While they share a global **Sidecar**, their internal context protocols remain isolated.
-
-*   **Agent A (The Scout)**: Low-capacity (512 tokens), `eviction_strategy="on_save"`. Ideal for high-speed, low-cost data extraction.
-*   **Agent B (The Integrator)**: High-capacity (10k tokens), `elastic_mode=True`, `eviction_strategy="manual"`. Ideal for complex synthesis.
-
-```python
-# scout = AmnesicSession(l1_capacity=512, eviction_strategy="on_save", sidecar=shared_brain)
-
-# Integrator Agent: Holds multiple artifacts in RAM for synthesis
-# integrator = AmnesicSession(l1_capacity=10000, elastic_mode=True, sidecar=shared_brain)
-```
-
-### 5. Stateful Phase Transitions
-Complex missions often require changing focus. Amnesic maintains a persistent **Policy State** across checkpoints.
-
-*   **Warm Up:** Use Flow Policies to auto-load context.
-*   **Lock Down:** Use `enable_policy` to activate safety rails when entering sensitive phases.
-
-```python
-# Enable a custom "Review Formatting" policy mid-mission
-session.enable_policy("ReviewFormat")
-```
-
-### 6. Performance Tuning (Fluid Mode)
-In standard "Strict Mode," every action (even just reading a file) is double-checked by a secondary LLM call, trading latency for perfect safety. For trusted environments or rapid scouting, use **Fluid Mode**.
-
-*   **Fluid Read**: Uses vector-based heuristics to instantly approve safe read operations, cutting latency by 50%.
-*   **Strict Write**: Writes are *always* audited by the LLM, regardless of mode.
-*   **Dynamic Switching**: Agents can switch modes mid-mission using `set_audit_policy`.
-
-```python
-# Start fast for scouting, then let the agent switch to strict for coding
-session = AmnesicSession(
-    ...,
-    audit_profile="FLUID_READ" 
-)
-```
-
-
----
-
-## Detailed Documentation
-- [Failure Taxonomy](FAILURE_TAXONOMY.md): Named failure modes we solve.
-- [Presets Guide](PRESETS_GUIDE.md): Build specialized Security or Refactor agents.
-- [Core Specification](AMNESIC_CORE_SPEC.md): The irreducible laws of the protocol.
-
-## Installation
 ```bash
 pip install -e .
-# Requires Ollama running locally (default: rnj-1:8b-cloud)
+# Requires an Ollama server running locally (default model: rnj-1:8b-cloud)
 ```
 
-## Running Proofs
-```bash
-# Run the full defensibility benchmark
-python tests/comparative/run_suite.py
+### Basic Usage
+
+```python
+from amnesic import AmnesicSession
+
+# Initialize a session with strict boundaries
+session = AmnesicSession(
+    mission="Read src/config.py to find the API key variable name, then update src/main.py to use it.",
+    root_dir="./src",
+    l1_capacity=2000  # Restrict context to 2k tokens to force efficiency
+)
+
+# Run the autonomous loop
+session.run()
 ```
+
+---
+
+## 🧠 Key Capabilities
+
+Amnesic enables workflows that are impossible for standard "chat" agents:
+
+### 1. Infinite Horizon (Marathon Mode)
+Process datasets infinitely larger than the context window.
+*   **How:** The agent processes one file, extracts the relevant data to the Sidecar (Backpack), and then *forgets* the file before opening the next.
+*   **Proof:** `tests/proofs/proof_native_overflow.py` (Processed 40k tokens of data with a 25k limit).
+
+### 2. Semantic Self-Correction
+The agent can update its own knowledge base when it encounters contradictory information.
+*   **How:** If File B contradicts File A, the agent updates the specific Artifact in the Backpack without needing to re-read File A.
+*   **Proof:** `tests/proofs/proof_self_correction.py`
+
+### 3. Context & Persona Swapping
+Pass the "brain" of one agent to another, or switch strategies mid-flight.
+*   **How:** Since state is externalized (Artifacts), a "Scout" agent can map a repo and die. A "Coder" agent can then wake up, inherit the Scout's Backpack, and start coding immediately without re-reading the repo.
+*   **Proof:** `tests/proofs/proof_context_offloading.py`
+
+### 4. Clean Room Sanitization
+Extract logic from sensitive files without leaking secrets.
+*   **How:** The agent reads the secret file, writes a "stub" (redacted) version to disk, and then must *physically unstage* the secret file before it is allowed to report success.
+*   **Proof:** `tests/proofs/proof_clean_room.py`
+
+---
+
+## 🛠️ The Toolkit
+
+The Manager has access to a specialized set of tools designed for this protocol:
+
+*   `stage_context(path)`: Load a file into L1 RAM. (Triggers auto-eviction of previous file in Strict Mode).
+*   `save_artifact(ID: value)`: Save a snippet, fact, or decision to the Backpack.
+*   `unstage_context(path)`: Explicitly clear a file from RAM.
+*   `write_file(path: content)`: Create or overwrite a file.
+*   `edit_file(path: instruction)`: Surgically edit a file using AI.
+*   `calculate(expression)`: Perform math or combine artifacts (e.g., `calculate(SUM_BACKPACK)`).
+*   `switch_strategy(name)`: Change the active persona (e.g., from "Architect" to "Implementer").
+*   `halt_and_ask(result)`: Declare the mission complete.
+
+---
+
+## 📖 Advanced Workflows
+
+### Elastic Mode (Multi-File Context)
+Sometimes you *need* to see two files at once (e.g., comparing a config to usage).
+```python
+session = AmnesicSession(..., elastic_mode=True)
+# The agent can now stage multiple files up to the l1_capacity limit.
+```
+
+### Custom Audit Profiles
+Control how strict the Auditor is.
+*   **STRICT_AUDIT (Default):** Paranoiac. Every action is double-checked by an LLM. High cost, max safety.
+*   **FLUID_READ:** heuristic-based checks for reading files (fast), LLM checks for writing (safe).
+*   **HIGH_SPEED:** Minimal checks. For trusted environments only.
+
+```python
+session = AmnesicSession(..., audit_profile="FLUID_READ")
+```
+
+### Pipelines (Map-Reduce)
+Chain agents together for complex tasks.
+```python
+from amnesic.core.pipeline import AmnesicPipeline
+
+pipeline = AmnesicPipeline()
+# Step 1: Scout scans for files
+pipeline.add_step("Scout", "Scan src/ and save a list of all .py files as FILE_LIST.")
+# Step 2: Workers process each file in parallel (conceptually)
+pipeline.add_map_step("Analyzer", "FILE_LIST", "Analyze {item} for security vulnerabilities.")
+# Step 3: Reporter aggregates results
+pipeline.add_step("Reporter", "Combine all vulnerability reports into final_report.md.")
+
+pipeline.run()
+```
+
+---
+
+## 🛡️ Safety & Limitations
+
+*   **Speed:** Amnesic is slower than standard agents because it performs more "thinking" steps (staging, saving, verifying).
+*   **Prompt Overhead:** The system prompts are complex to enforce these invariants, consuming ~1k tokens per turn.
+*   **Model Requirements:** Works best with models that follow instructions well (e.g., Qwen 2.5 Coder, Llama 3). We have hardened it for 8B models, but larger models yield better reasoning.
+
+For a deep dive into the architecture, failure taxonomy, and specifications, see [DOCS.md](DOCS.md).
