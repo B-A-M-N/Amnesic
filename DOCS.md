@@ -75,3 +75,37 @@ If the agent is reading `main.py` and sees `import utils`, the system can proact
 
 ### Determinism
 By fixing the random seed and enforcing strict state transitions, Amnesic can achieve 100% replayability for debugging complex agent logic. See `proof_determinism.py`.
+
+---
+
+## 5. Model Tuning & Context Normalization
+
+### The "Staging Normalizer" Pattern
+Amnesic acts as a **Context Staging Normalizer**. By virtualizing infinite context into discrete, manageable pages, it allows smaller models (e.g., 8B parameters with 8k context) to achieve the functional performance of much larger models on long-horizon tasks.
+
+*   **Scaling Small Models:** A 7B model with a 4k window can process a 100k-token repository by treating it as a stream of 2k chunks. The "Brain" never sees more than it can handle, but the "Backpack" retains the accumulated insight.
+*   **Multi-Model Pipelines:** In pipelines where agents hand off tasks, Amnesic normalizes the state. A "Scout" agent (8B) can distill a massive dataset into a dense 1k-token artifact, which is then handed to a "Coder" agent (70B) for high-precision synthesis.
+
+### Tuning `l1_capacity`
+**CRITICAL:** For Amnesic to work, you MUST tune `l1_capacity` to the specific constraints of your LLM.
+
+*   **Total Window** = The model's hard limit (e.g., 8192 tokens).
+*   **System Overhead** = Prompts + History (~1000-2000 tokens).
+*   **Output Reserve** = Space needed for the model's response (~1000 tokens).
+*   **L1 Capacity** = Total Window - (Overhead + Output Reserve).
+
+**Example Configuration:**
+```python
+# For a model with 8k context
+session = AmnesicSession(
+    ...,
+    max_total_context=8192,
+    context_floors={
+        "reasoning": 1024,  # Reserve for thinking
+        "output": 1024,     # Reserve for response
+        "overhead": 2048    # Reserve for system prompts/history
+    }
+)
+# Resulting L1 Capacity = ~4096 tokens
+```
+If `l1_capacity` is set too high, the model will truncate the system prompt or history, breaking the invariant enforcement. If set too low, the agent will "thrash," constantly staging and unstaging files to read simple functions.

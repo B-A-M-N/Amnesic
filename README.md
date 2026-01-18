@@ -68,6 +68,10 @@ Extract logic from sensitive files without leaking secrets.
 *   **How:** The agent reads the secret file, writes a "stub" (redacted) version to disk, and then must *physically unstage* the secret file before it is allowed to report success.
 *   **Proof:** `tests/proofs/proof_clean_room.py`
 
+### 5. Context Normalization (Scaling Small Models)
+Enable smaller models to punch above their weight.
+*   **How:** By acting as a "Staging Normalizer," Amnesic virtualizes infinite context. A 7B model with a small window can process massive datasets by seeing them as a stream of perfectly-sized chunks, effectively emulating the infinite-context performance of much larger models.
+
 ---
 
 ## 🛠️ The Toolkit
