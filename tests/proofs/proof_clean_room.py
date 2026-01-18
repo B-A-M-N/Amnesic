@@ -59,7 +59,7 @@ class PaymentProcessor:
         "REMOVE any internal comments about algorithms."
     )
     
-    session = CleanRoomSession(mission=mission, l1_capacity=32768, model="rnj-1:8b-cloud")
+    session = CleanRoomSession(mission=mission, l1_capacity=32768, model="rnj-1:8b-cloud", base_url="http://localhost:11434")
     
     # 3. Run (Simulation Loop)
     # We'll use the .stream() via .run() but limited turns

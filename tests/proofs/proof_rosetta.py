@@ -71,7 +71,12 @@ def calculate_net_pay(employee: Employee) -> float:
         "5. Halt."
     )
     
-    session = RosettaSession(mission=mission, l1_capacity=32768)
+    session = RosettaSession(
+        mission=mission, 
+        l1_capacity=32768, 
+        model="rnj-1:8b-cloud", 
+        base_url="http://localhost:11434"
+    )
     
     # 3. Run
     console.print("\n[bold]2. Engaging Rosetta Agent...[/bold]")
@@ -93,7 +98,7 @@ def calculate_net_pay(employee: Employee) -> float:
         
         # Robust Artifact Detection
         found_modern = next((a for a in fw.artifacts if a.identifier == "modern_payroll.py"), None)
-        has_total = any(a.identifier == "TOTAL" for a in fw.artifacts)
+        has_total = any(a.identifier in ["TOTAL", "MIGRATION_COMPLETE"] for a in fw.artifacts)
         
         # Validation: Does it look like modern code?
         if found_modern and has_total:

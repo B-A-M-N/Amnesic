@@ -39,7 +39,8 @@ def run_persona_swap_proof():
     mission = (
         "MISSION: 1. Architect Mode: Read app.py. "
         "2. Create a REFACTOR_PLAN artifact specifying how to extract the validation logic into a new function 'validate_order'. "
-        "3. Switch Strategy to 'IMPLEMENTER'. "
+        "RULE: If REFACTOR_PLAN exists in your artifacts, you MUST IMMEDIATELY call 'switch_strategy' with target 'IMPLEMENTER'. "
+        "3. CALL the 'switch_strategy' tool with target 'IMPLEMENTER'. "
         "4. Implement the split in app.py. "
         "5. Halt once complete."
     )
@@ -50,6 +51,8 @@ def run_persona_swap_proof():
     session = AmnesicSession(mission=mission, l1_capacity=32768, strategy=initial_strategy)
     config = {"configurable": {"thread_id": "proof_persona_spaghetti"}, "recursion_limit": 100}
     
+    import time
+    start = time.time()
     # Visual Confirmation
     session.visualize()
     
@@ -143,7 +146,7 @@ def run_persona_swap_proof():
                      ))
                 break
         
-        if turn_count > 20:
+        if time.time() - start > 300:
             console.print("[bold red]Timeout reached.[/bold red]")
             break
 

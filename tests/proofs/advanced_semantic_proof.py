@@ -10,6 +10,7 @@ from rich.rule import Rule
 # Ensure framework access
 sys.path.append(os.path.abspath(os.path.join(os.path.dirname(__file__), "../../")))
 from amnesic.core.session import AmnesicSession
+from amnesic.presets.rosetta import RosettaSession
 from amnesic.core.sidecar import SharedSidecar
 
 def run_advanced_proof():
@@ -58,7 +59,9 @@ def run_advanced_proof():
         "If the MISSION asks for VAL_A but you see 'not_val_a' in [CURRENT L1 CONTEXT CONTENT], use it."
     )
     
-    session = AmnesicSession(mission=mission, l1_capacity=32768, strategy=intent_strategy)
+    session = RosettaSession(
+        mission=mission, 
+        l1_capacity=32768)
     session.visualize()
     
     # 3. Telemetry Setup (Matching basic_semantic_proof style)

@@ -67,8 +67,8 @@ def run_determinism_proof():
 
     # 3. Execution Loop (5 Independent Runs)
     for i in range(5):
-        # Re-init session to ensure clean slate, but with SAME config and SEED
-        session = AmnesicSession(mission=mission, l1_capacity=32768, deterministic_seed=42, model="rnj-1:8b-cloud")
+        # Fresh Session Each Time
+        session = AmnesicSession(mission=mission, l1_capacity=32768, deterministic_seed=42, model="rnj-1:8b-cloud", base_url="http://localhost:11434")
         
         # Force a single step of the Manager
         fw_state = session.state['framework_state']

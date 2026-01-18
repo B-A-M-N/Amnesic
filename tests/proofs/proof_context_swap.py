@@ -57,8 +57,9 @@ def run_context_swap_proof():
         mission=scout_mission,
         root_dir="temp_src",
         audit_profile="FLUID_READ", # Fast path enabled
-        model="rnj-1:8b-cloud"
-    )
+        model="rnj-1:8b-cloud",
+        base_url="http://localhost:11434"
+        )
     
     try:
         # Higher recursion limit for 8b to recover from mistakes
@@ -92,8 +93,9 @@ def run_context_swap_proof():
         root_dir="temp_empty", # Physical Isolation
         audit_profile="STRICT_AUDIT", # Safety on
         sidecar=scout.sidecar, # Share the brain
-        model="rnj-1:8b-cloud"
-    )
+        model="rnj-1:8b-cloud",
+        base_url="http://localhost:11434"
+        )
     
     try:
         architect.run(config={"recursion_limit": 50, "configurable": {"thread_id": "architect"}})

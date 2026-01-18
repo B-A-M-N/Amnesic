@@ -64,10 +64,11 @@ def run_pipeline_proof():
         name="Reporter",
         mission=(
             "1. Use 'calculate' with target 'JOIN' to combine all 'FUNC_' artifacts in your backpack.\n"
-            "2. Use 'write_file' with target 'final_report.txt: ARTIFACT:TOTAL' to save the result.\n"
-            "3. HALT."
+            "2. YOU MUST Use 'write_file' with target 'final_report.txt: ARTIFACT:TOTAL' to save the result.\n"
+            "3. After successful write, you may stop."
         ),
-        profile="STRICT_AUDIT"
+        profile="STRICT_AUDIT",
+        forbidden_tools=["halt_and_ask"]
     )
 
     # 3. Execute

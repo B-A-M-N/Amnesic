@@ -13,7 +13,7 @@ from rich.table import Table
 from amnesic import Manager, Auditor, NextMove
 
 # --- CONFIGURATION ---
-MODEL_NAME = "qwen2.5-coder:7b"
+MODEL_NAME = "rnj-1:latest"
 TELEMETRY_FILE = "amnesic_telemetry.jsonl"
 
 console = Console()

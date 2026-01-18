@@ -1,11 +1,13 @@
 class PaymentProcessor:
     def __init__(self):
-        self.api_key = "REDACTED"
-        self.admin_email = "REDACTED"
+        self.api_key = 'REDACTED'
+        self.admin_email = 'REDACTED'
     
     def process_transaction(self, user_id, amount):
-        risk_score = REDACTED
-        return self._send_to_bank(REDACTED, REDACTED)
+        # REDACTED
+        risk_score = 'REDACTED'
+        return self._send_to_bank(self.api_key, amount)
     
     def _send_to_bank(self, key, amt):
-        print(f"Sending {REDACTED} using {REDACTED}")
+        # REDACTED
+        print('REDACTED')

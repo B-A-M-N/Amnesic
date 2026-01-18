@@ -41,8 +41,10 @@ def run_marathon_proof():
     # 2. Initialize Session
     mission = (
         "MISSION: Reconstruct a 10-word sentence by following the trail from step_0.txt to step_9.txt. "
-        "Extract each PART_N and save it as an artifact (PART_0, PART_1... PART_9). "
+        "STRICT PLAN: 1. Read step_0.txt -> Save PART_0. 2. Read step_1.txt -> Save PART_1. ... up to PART_9. "
         "MANDATORY: You must have exactly 10 'PART_' artifacts in your Backpack BEFORE you combine them. "
+        "CRITICAL RULE: You MUST save the artifact for the current file BEFORE opening the next file. "
+        "DO NOT skip any step. DO NOT combine steps. "
         "Once you have all 10 parts, combine them into a single 'TOTAL' result and HALT."
     )
     
@@ -109,7 +111,8 @@ def run_marathon_proof():
 
             if move.tool_call == "halt_and_ask":
                 # Check for completeness
-                parts_found = len([a for a in fw_state.artifacts if "PART_" in a.identifier])
+                safe_artifacts = [a for a in fw_state.artifacts if a is not None]
+                parts_found = len([a for a in safe_artifacts if "PART_" in a.identifier])
                 
                 # Manual verification of the total sentence content
                 full_sentence = "The Amnesic Protocol Enables Reliable Long Horizon Reasoning Without Drift"

@@ -6,14 +6,15 @@ from .session import AmnesicSession
 from .sidecar import SharedSidecar
 
 class PipelineStep:
-    def __init__(self, name: str, mission: str, profile: str = "STRICT_AUDIT"):
+    def __init__(self, name: str, mission: str, profile: str = "STRICT_AUDIT", forbidden_tools: List[str] = None):
         self.name = name
         self.mission = mission
         self.profile = profile
+        self.forbidden_tools = forbidden_tools or []
 
 class MapStep(PipelineStep):
-    def __init__(self, name: str, input_artifact: str, mission_template: str, profile: str = "STRICT_AUDIT"):
-        super().__init__(name, mission_template, profile)
+    def __init__(self, name: str, input_artifact: str, mission_template: str, profile: str = "STRICT_AUDIT", forbidden_tools: List[str] = None):
+        super().__init__(name, mission_template, profile, forbidden_tools)
         self.input_artifact = input_artifact
 
 class AmnesicPipeline:
@@ -27,12 +28,12 @@ class AmnesicPipeline:
         self.console = Console()
         self.default_recursion_limit = default_recursion_limit
 
-    def add_step(self, name: str, mission: str, profile: str = "STRICT_AUDIT"):
+    def add_step(self, name: str, mission: str, profile: str = "STRICT_AUDIT", forbidden_tools: List[str] = None):
         """Add a single linear task."""
-        self.steps.append(PipelineStep(name, mission, profile))
+        self.steps.append(PipelineStep(name, mission, profile, forbidden_tools))
         return self
 
-    def add_map_step(self, name: str, input_artifact: str, mission_template: str, profile: str = "STRICT_AUDIT"):
+    def add_map_step(self, name: str, input_artifact: str, mission_template: str, profile: str = "STRICT_AUDIT", forbidden_tools: List[str] = None):
         """
         Executes a mission for EACH item in the comma/newline separated input_artifact.
         Use {item} in mission_template to inject the value.
@@ -40,7 +41,7 @@ class AmnesicPipeline:
         Example: 
             pipeline.add_map_step("workers", "FILE_LIST", "Refactor {item}")
         """
-        self.steps.append(MapStep(name, input_artifact, mission_template, profile))
+        self.steps.append(MapStep(name, input_artifact, mission_template, profile, forbidden_tools))
         return self
 
     def run(self):
@@ -68,7 +69,8 @@ class AmnesicPipeline:
             mission=step.mission,
             audit_profile=step.profile,
             sidecar=self.sidecar,
-            recursion_limit=self.default_recursion_limit
+            recursion_limit=self.default_recursion_limit,
+            forbidden_tools=step.forbidden_tools
         )
         session.run()
         # No need to manually extract artifacts, they are already in the Sidecar
@@ -112,6 +114,7 @@ class AmnesicPipeline:
                 mission=mission,
                 audit_profile=step.profile,
                 sidecar=self.sidecar,
-                recursion_limit=self.default_recursion_limit
+                recursion_limit=self.default_recursion_limit,
+                forbidden_tools=step.forbidden_tools
             )
             session.run()

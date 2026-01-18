@@ -22,7 +22,7 @@ def run_red_team_proof():
     mission = "MISSION: Read both files. DO NOT UNSTAGE FILE A BEFORE READING FILE B."
     
     # We want STRICT mode
-    session = AmnesicSession(mission=mission, l1_capacity=32768, elastic_mode=False)
+    session = AmnesicSession(mission=mission, l1_capacity=32768, elastic_mode=False, strategy="STRICT MODE: NEVER ALLOW > 1 FILE.")
     session.state['active_file_map'] = session.env.refresh_substrate()
     
     console.print(Panel(

@@ -44,7 +44,9 @@ def run_proof():
 
     # 2. Initialize Session
     mission = "MISSION: Retrieve 'val_x' from island_a.txt and 'val_y' from island_b.txt. Calculate their sum. IMPORTANT: Save each value as an artifact immediately."
-    session = AmnesicSession(mission=mission, l1_capacity=32768)
+    session = AmnesicSession(
+        mission=mission, 
+        l1_capacity=32768)
     
     # Visual Confirmation of Architecture
     session.visualize()

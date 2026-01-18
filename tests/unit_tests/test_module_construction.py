@@ -78,7 +78,7 @@ class TestModuleConstruction(unittest.TestCase):
     def test_driver_factory_ollama(self):
         """Verify Driver Factory returns Ollama driver."""
         # Ollama doesn't require API key
-        driver = get_driver(provider="ollama", model="qwen2.5-coder:7b")
+        driver = get_driver(provider="ollama", model="rnj-1:latest")
         from amnesic.drivers.ollama import OllamaDriver
         self.assertIsInstance(driver, OllamaDriver)
 

@@ -71,7 +71,7 @@ class Manager:
         # but main.py passed `driver` which is OllamaDriver.
         # Let's check OllamaDriver signature in drivers/ollama.py if possible, 
         # or stick to direct ollama call if the driver wrapper is thin.
-        # main.py does: driver = OllamaDriver(model_name="qwen2.5-coder:7b")
+        # main.py does: driver = OllamaDriver(model_name="rnj-1:latest")
         # Let's assume we use the driver method if possible, but the previous code used ollama.chat directly.
         # To be safe and consistent with main.py which initializes Manager(driver), we use self.driver.
         

@@ -12,7 +12,7 @@ from .base import LLMDriver
 logger = logging.getLogger("amnesic.driver")
 
 class OllamaDriver(LLMDriver):
-    def __init__(self, model_name: str = "qwen2.5-coder:7b", temperature: float = 0.1, num_ctx: int = 32768, seed: Optional[int] = None):
+    def __init__(self, model_name: str = "rnj-1:8b-cloud", temperature: float = 0.1, num_ctx: int = 32768, seed: Optional[int] = None, base_url: Optional[str] = None):
         """
         The low-level interface to the LLM. 
         Designed to be stateless to allow rapid 'Frame Swapping'.
@@ -21,6 +21,7 @@ class OllamaDriver(LLMDriver):
         self.temperature = temperature
         self.num_ctx = num_ctx
         self.seed = seed
+        self.base_url = base_url
         self.last_request_tokens = 0
         
         # Base client
@@ -29,6 +30,7 @@ class OllamaDriver(LLMDriver):
             temperature=temperature,
             format="json",
             num_ctx=num_ctx,
+            base_url=base_url,
             options={
                 "seed": seed,
                 "temperature": temperature,
@@ -48,7 +50,8 @@ class OllamaDriver(LLMDriver):
         """
         try:
             # Using the official python ollama client for embeddings
-            response = ollama.embeddings(model=self.model_name, prompt=text)
+            client = ollama.Client(host=self.base_url) if self.base_url else ollama
+            response = client.embeddings(model=self.model_name, prompt=text)
             return response["embedding"]
         except Exception as e:
             logger.error(f"Embedding failed: {e}")
@@ -139,6 +142,7 @@ class OllamaDriver(LLMDriver):
             temperature=self.temperature,
             format="json",
             num_ctx=self.num_ctx,
+            base_url=self.base_url,
             options={
                 "seed": self.seed,
                 "temperature": self.temperature,
@@ -349,29 +353,32 @@ class OllamaDriver(LLMDriver):
                 if "rationction" in data and "rationale" not in data: data["rationale"] = data.pop("rationction")
             
             if schema.__name__ == "ManagerMove":
+                # Thought Process variations
+                for alias in ["action", "thought", "logic", "thought_organism", "thought_terminator", "rationale", "thought_process"]:
+                    if alias in data:
+                        data["thought_process"] = data.pop(alias)
+                
+                if "thought_process" not in data:
+                    data["thought_process"] = default_thought or "No reasoning provided."
+
+                # Tool Call variations
                 if "action" in data and "tool_call" not in data: data["tool_call"] = data.pop("action")
-                if "thought" in data and "thought_process" not in data: data["thought_process"] = data.pop("thought")
-                if "logic" in data and "thought_process" not in data: data["thought_process"] = data.pop("logic")
-            
-            # --- THOUGHT INJECTION ---
-            if schema.__name__ == "ManagerMove" and "thought_process" not in data and default_thought:
-                data["thought_process"] = default_thought
-            
-            # --- NULL TARGET HEALING ---
-            if schema.__name__ == "ManagerMove" and data.get("target") is None:
-                data["target"] = ""
-            
-            # --- DICT TARGET HEALING ---
-            if schema.__name__ == "ManagerMove" and isinstance(data.get("target"), dict):
-                t_dict = data["target"]
-                if "key" in t_dict and "value" in t_dict:
-                    data["target"] = f"{t_dict['key']}={t_dict['value']}"
-                elif "artifact_key" in t_dict:
-                    # Model hallucinated structured artifact save
-                    data["target"] = t_dict["artifact_key"]
+                if "command" in data and "tool_call" not in data: data["tool_call"] = data.pop("command")
+                
+                # Target variations
+                if "instruction" in data and "target" not in data: data["target"] = data.pop("instruction")
+                if "goal" in data and "target" not in data: data["target"] = data.pop("goal")
+                
+                # Target type coercion
+                if "target" in data:
+                    if data["target"] is None:
+                        data["target"] = ""
+                    elif isinstance(data["target"], (list, dict)):
+                        data["target"] = str(data["target"])
+                    else:
+                        data["target"] = str(data["target"])
                 else:
-                    # Fallback stringify
-                    data["target"] = json.dumps(t_dict)
+                    data["target"] = ""
             
             # --- CODE BLOCK SANITIZATION IN TARGET ---
             if schema.__name__ == "ManagerMove" and data.get("target"):
@@ -398,27 +405,32 @@ class OllamaDriver(LLMDriver):
                 if "rationction" in data and "rationale" not in data: data["rationale"] = data.pop("rationction")
             
             if schema.__name__ == "ManagerMove":
+                # Thought Process variations
+                for alias in ["thought", "logic", "thought_organism", "thought_terminator", "rationale", "thought_process"]:
+                    if alias in data:
+                        data["thought_process"] = data.pop(alias)
+                
+                if "thought_process" not in data:
+                    data["thought_process"] = default_thought or "No reasoning provided."
+
+                # Tool Call variations
                 if "action" in data and "tool_call" not in data: data["tool_call"] = data.pop("action")
-                if "thought" in data and "thought_process" not in data: data["thought_process"] = data.pop("thought")
-                if "logic" in data and "thought_process" not in data: data["thought_process"] = data.pop("logic")
-            
-            # --- THOUGHT INJECTION ---
-            if schema.__name__ == "ManagerMove" and "thought_process" not in data and default_thought:
-                data["thought_process"] = default_thought
-            
-            # --- NULL TARGET HEALING ---
-            if schema.__name__ == "ManagerMove" and data.get("target") is None:
-                data["target"] = ""
-            
-            # --- DICT TARGET HEALING ---
-            if schema.__name__ == "ManagerMove" and isinstance(data.get("target"), dict):
-                t_dict = data["target"]
-                if "key" in t_dict and "value" in t_dict:
-                    data["target"] = f"{t_dict['key']}={t_dict['value']}"
-                elif "artifact_key" in t_dict:
-                    data["target"] = t_dict["artifact_key"]
+                if "command" in data and "tool_call" not in data: data["tool_call"] = data.pop("command")
+                
+                # Target variations
+                if "instruction" in data and "target" not in data: data["target"] = data.pop("instruction")
+                if "goal" in data and "target" not in data: data["target"] = data.pop("goal")
+                
+                # Target type coercion
+                if "target" in data:
+                    if data["target"] is None:
+                        data["target"] = ""
+                    elif isinstance(data["target"], (list, dict)):
+                        data["target"] = str(data["target"])
+                    else:
+                        data["target"] = str(data["target"])
                 else:
-                    data["target"] = json.dumps(t_dict)
+                    data["target"] = ""
             
             # --- CODE BLOCK SANITIZATION IN TARGET ---
             if schema.__name__ == "ManagerMove" and data.get("target"):
@@ -457,6 +469,7 @@ class OllamaDriver(LLMDriver):
             model=self.model_name,
             format="json",
             num_ctx=self.num_ctx,
+            base_url=self.base_url,
             options={
                 "seed": self.seed,
                 "temperature": self.temperature,
@@ -508,6 +521,7 @@ class OllamaDriver(LLMDriver):
             temperature=self.temperature,
             format="", # Raw mode
             num_ctx=self.num_ctx,
+            base_url=self.base_url,
             options={
                 "seed": self.seed,
                 "temperature": self.temperature,

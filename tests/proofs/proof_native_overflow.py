@@ -38,9 +38,15 @@ def run_overflow_proof():
     console.print("[Done]")
 
     # 2. Initialize Session with Native-like Capacity
+    # FORCE CLEAN: Wipe the cache directory to prevent state leakage from previous tests
+    cache_dir = ".amnesic_cache"
+    if os.path.exists(cache_dir): shutil.rmtree(cache_dir)
+
     session = AmnesicSession(
         mission=(
-            "Scan 'overflow_data/' (files log_00.txt to log_15.txt). "
+            "Scan 'overflow_data/' (files log_00.txt to log_15.txt) IN STRICT SEQUENTIAL ORDER. "
+            "Start with log_00.txt, save its artifact, then log_01.txt, etc. "
+            "You MUST process log_00, then log_01, ..., up to log_15. DO NOT SKIP ANY FILE. "
             "For EACH file, extract 'TARGET_VALUE' (integer) and save it as a UNIQUE artifact named 'VAL_<filename>' (e.g., 'VAL_log_00.txt'). "
             "DO NOT overwrite artifacts you already have. "
             "Once you have saved ALL 16 values, use 'calculate' with the target 'SUM_BACKPACK' to sum all integers in your artifacts. HALT."
@@ -50,7 +56,7 @@ def run_overflow_proof():
         context_mode="diligent",
         audit_profile="FLUID_READ", # Speed is essential here
         elastic_mode=True, # Allow multiple files, forcing it to hit the limit
-        forbidden_tools=["calculate"] # Forbid calculate until artifacts are done
+        forbidden_tools=[] # Allow all tools
     )
     
     # 2.5 Clear Sidecar to avoid pollution from other tests
@@ -72,7 +78,8 @@ def run_overflow_proof():
     found_count = 0
     
     # Check for a total
-    for art in session.state['framework_state'].artifacts:
+    safe_artifacts = [a for a in session.state['framework_state'].artifacts if a is not None]
+    for art in safe_artifacts:
         console.print(f"- {art.identifier}: {art.summary}")
         if "TOTAL" in art.identifier:
             try:

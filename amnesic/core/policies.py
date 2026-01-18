@@ -20,29 +20,63 @@ def _check_mission_complete(state: FrameworkState) -> bool:
     """Detects if the mission goal has been achieved via artifacts."""
     mission = state.task_intent.lower()
     
-    # NEW: Count-based completion
+    # 1. MATH/TOTAL COMPLETION: If the mission asks for a sum/total and we have it.
+    has_total = any(a and a.identifier == "TOTAL" for a in state.artifacts)
+    is_math_mission = any(kw in mission for kw in ["sum", "total", "calculate", "math", "add", "result"])
+    if has_total and is_math_mission:
+        return True
+
+    # 2. COUNT-BASED COMPLETION
     count_match = re.search(r"(\d+)\s*(-word|\s*parts|\s*artifacts|\s*files|\s*values|\s*items)", mission)
     if count_match:
         required_count = int(count_match.group(1))
         # Find parts (ignore metadata)
-        actual_parts = [a for a in state.artifacts if a.identifier.startswith("PART_")]
+        actual_parts = [a for a in state.artifacts if a and (a.identifier.startswith("PART_") or a.identifier.startswith("VAL_") or a.identifier.startswith("FUNC_"))]
         if len(actual_parts) >= required_count:
             return True
-        return False
-
+        
     # Standard completion patterns...
     if not state.artifacts:
         return False
 def _react_mission_complete(state: FrameworkState) -> ManagerMove:
     """Forces a halt when mission is complete."""
+    # RESPECT FORBIDDEN TOOLS: If halt is forbidden (e.g. Pipeline Reporter must write file first),
+    # do not force a halt. Let the agent continue.
+    # We need to access the forbidden_tools from the wrapper state, but here we only have FrameworkState.
+    # However, the Manager checks this before calling policies? No.
+    # Policies run *before* Manager.
+    # We can't easily access forbidden_tools here without changing the signature.
+    # WAIT: FrameworkState doesn't have forbidden_tools. AgentState does.
+    # But this function takes FrameworkState.
+    
+    # HACK: We can infer it's the Reporter step if the artifacts contain 'TOTAL' 
+    # but we haven't written the file yet? No.
+    
+    # BETTER FIX: We will modify the DEFAULT_COMPLETION_POLICY instantiation below 
+    # to use a lambda that checks the FULL AgentState if possible, or just accept 
+    # that we need to change the function signature in a future refactor.
+    
+    # For now, let's look at the Artifacts. If we have TOTAL, but the mission explicitly says "write_file", 
+    # maybe we should wait?
+    mission = state.task_intent.lower()
+    has_total = any(a.identifier == "TOTAL" for a in state.artifacts if a)
+    
+    # If mission says "write" and we haven't written yet (heuristic: check history for write_file success)
+    if "write" in mission and has_total:
+        # Check if we recently wrote a file
+        wrote_file = any(h.get('tool_call') == 'write_file' and h.get('execution_result') == 'SUCCESS' for h in state.decision_history)
+        if not wrote_file:
+            # We have the total, but haven't written it yet. HOLD FIRE.
+            return None
+
     # Find the most relevant completion artifact
-    art = next((a for a in state.artifacts if a.identifier == "TOTAL"), None)
+    art = next((a for a in state.artifacts if a and a.identifier == "TOTAL"), None)
     
     # IMPROVEMENT: If this is a concatenation mission (Marathon), 
     # ensure the TOTAL artifact actually contains all the parts.
     mission_text = state.task_intent.lower()
     if "concatenat" in mission_text or "10-word" in mission_text or "all parts" in mission_text:
-        all_parts = sorted([a for a in state.artifacts if a.identifier.startswith("PART_")], key=lambda x: x.identifier)
+        all_parts = sorted([a for a in state.artifacts if a and a.identifier.startswith("PART_")], key=lambda x: x.identifier)
         if all_parts:
             combined = " ".join([p.summary.strip("'\"") for p in all_parts])
             return ManagerMove(
@@ -52,11 +86,11 @@ def _react_mission_complete(state: FrameworkState) -> ManagerMove:
             )
 
     if not art:
-        art = next((a for a in state.artifacts if "VIOLATION" in a.identifier.upper()), None)
+        art = next((a for a in state.artifacts if a and "VIOLATION" in a.identifier.upper()), None)
     if not art:
-        art = next((a for a in state.artifacts if "COMPLETE" in a.identifier.upper()), None)
+        art = next((a for a in state.artifacts if a and "COMPLETE" in a.identifier.upper()), None)
     if not art:
-        art = next((a for a in state.artifacts if "VERIFICATION" in a.identifier.upper()), None)
+        art = next((a for a in state.artifacts if a and "VERIFICATION" in a.identifier.upper()), None)
     
     return ManagerMove(
         thought_process=f"The {art.identifier} artifact is present. The mission is complete.",
@@ -125,7 +159,7 @@ def _check_progress_lock(state: FrameworkState, active_pages: List[str]) -> bool
         
     required = int(count_match.group(1) or count_match.group(2))
     # Count non-meta artifacts
-    current_count = len([a for a in state.artifacts if a.identifier not in ["TOTAL", "VERIFICATION", "FILE_LIST"]])
+    current_count = len([a for a in state.artifacts if a and a.identifier not in ["TOTAL", "VERIFICATION", "FILE_LIST"]])
     
     last_feedback = state.last_action_feedback or ""
     is_short = current_count < required
@@ -147,10 +181,10 @@ def _react_progress_lock(state: FrameworkState) -> ManagerMove:
     mission_text = state.task_intent.lower()
     count_match = re.search(r"all (\d+)|(\d+) (words|values|files|parts|artifacts|steps)", mission_text)
     required = int(count_match.group(1) or count_match.group(2))
-    current_count = len([a for a in state.artifacts if a.identifier not in ["TOTAL", "VERIFICATION", "FILE_LIST"]])
+    current_count = len([a for a in state.artifacts if a and a.identifier not in ["TOTAL", "VERIFICATION", "FILE_LIST"]])
     
     # Logic to find the next logical file
-    if "step_" in mission_text or any("step_" in a.identifier for a in state.artifacts):
+    if "step_" in mission_text or any(a and "step_" in a.identifier for a in state.artifacts):
         next_idx = current_count
         target_file = f"step_{next_idx}.txt"
     else:
@@ -202,13 +236,13 @@ def _check_auto_halt(state: FrameworkState, active_pages: List[str]) -> bool:
     
     if target_matches:
         target_name = target_matches[-1] # Take the last one mentioned (usually the goal)
-        return any(a.identifier.lower() == target_name.lower() for a in state.artifacts)
+        return any(a and a.identifier.lower() == target_name.lower() for a in state.artifacts)
 
     # Fallback: If no specific name mentioned, any new non-meta artifact counts
-    return any(a.identifier not in ["TOTAL", "VERIFICATION", "FILE_LIST"] for a in state.artifacts)
+    return any(a and a.identifier not in ["TOTAL", "VERIFICATION", "FILE_LIST"] for a in state.artifacts)
 
 def _react_auto_halt(state: FrameworkState) -> ManagerMove:
-    art = next(a for a in state.artifacts if a.identifier not in ["TOTAL", "VERIFICATION"])
+    art = next(a for a in state.artifacts if a and a.identifier not in ["TOTAL", "VERIFICATION"])
     return ManagerMove(
         thought_process=f"AutoHalt: Mission required extraction, and '{art.identifier}' is saved. Mission complete.",
         tool_call="halt_and_ask",
@@ -216,48 +250,40 @@ def _react_auto_halt(state: FrameworkState) -> ManagerMove:
     )
 
 def _check_stagnation_breaker(state: FrameworkState, active_pages: List[str]) -> bool:
-    """Trigger: If last 3 turns were rejections of the same move."""
+    """Trigger: If last 4 turns were rejections of the same move."""
     history = state.decision_history
-    if len(history) < 3: return False
+    if len(history) < 4: return False
     
-    last_three = history[-3:]
-    all_rejected = all(h.get('auditor_verdict') == "REJECT" for h in last_three)
-    same_tool = len(set(h.get('tool_call') for h in last_three)) == 1
+    last_window = history[-4:]
+    all_rejected = all(h.get('auditor_verdict') == "REJECT" for h in last_window)
+    same_tool = len(set(h.get('tool_call') for h in last_window)) == 1
     
     return all_rejected and same_tool
 
 def _react_stagnation_breaker(state: FrameworkState) -> ManagerMove:
     # Force a jump to the next expected file
-    current_count = len([a for a in state.artifacts if a.identifier not in ["TOTAL", "VERIFICATION", "FILE_LIST"]])
+    current_count = len([a for a in state.artifacts if a and a.identifier not in ["TOTAL", "VERIFICATION", "FILE_LIST"]])
     mission_text = state.task_intent.lower()
     
-    if "step_" in mission_text or any("step_" in a.identifier for a in state.artifacts):
+    if "step_" in mission_text or any(a and "step_" in a.identifier for a in state.artifacts):
         next_idx = current_count
         target_file = f"step_{next_idx}.txt"
     else:
+        # Fallback for log missions
         next_idx = f"{current_count:02d}"
         target_file = f"log_{next_idx}.txt"
     
     return ManagerMove(
-        thought_process=f"STAGNATION BREAKER: Multiple rejections detected. Forcing progress to {target_file}.",
-        tool_call="stage_context",
-        target=target_file
+        thought_process=f"STAGNATION BREAKER: Multiple rejections detected. Forcing progress to {target_file}. UNSTAGING current context.",
+        tool_call="unstage_context",
+        target="ALL"
     )
 
 STAGNATION_BREAKER_POLICY = KernelPolicy(
     name="StagnationBreaker",
-    condition=lambda state, active_pages: (
-        len(state.decision_history) >= 2 and 
-        state.decision_history[-1]["tool_call"] == state.decision_history[-2]["tool_call"] and
-        state.decision_history[-1]["auditor_verdict"] == "PASS" and
-        # If the last action failed due to OOM or error, we are stagnant
-        ("ERROR" in (state.last_action_feedback or "").upper() or "L1 FULL" in (state.last_action_feedback or "").upper())
-    ),
-    reaction=lambda state: ManagerMove(
-        thought_process="I am stuck in a memory loop. Forcing a full L1 wipe to clear overhead and retry.",
-        tool_call="unstage_context",
-        target="ALL" # Special keyword handled in session.py
-    )
+    condition=_check_stagnation_breaker,
+    reaction=_react_stagnation_breaker,
+    priority=40 # Very high priority
 )
 
 AUTO_HALT_POLICY = KernelPolicy(

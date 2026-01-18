@@ -8,7 +8,7 @@ from rich.panel import Panel
 from rich.json import JSON
 
 # --- CONFIGURATION ---
-MODEL_NAME = "qwen2.5-coder:7b"  # Your 7B Model
+MODEL_NAME = "rnj-1:latest"  # Your 7B Model
 RERANK_MODEL = "BAAI/bge-reranker-base" # Or use a smaller fastembed supported model
 
 console = Console()

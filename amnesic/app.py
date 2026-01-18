@@ -26,7 +26,7 @@ logging.basicConfig(
 )
 
 class FrameworkApp:
-    def __init__(self, mission: str, root_dir: str = "./", model: str = "qwen2.5-coder:7b", provider: str = "ollama", use_hybrid: bool = False):
+    def __init__(self, mission: str, root_dir: str = "./", model: str = "rnj-1:latest", provider: str = "ollama", use_hybrid: bool = False):
         self.mission = mission
         self.root_dir = root_dir
         self.console = Console()

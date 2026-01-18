@@ -41,6 +41,8 @@ class ManagerPromptBuilder:
 
         standard_instructions = f"""
         {amnesia_rule}
+        - **ARTIFACT PRIORITY**: If you read a value, SAVE IT immediately. Do not switch files until the data is secured.
+        - **STRATEGY CHECK**: If you are ALREADY in the target strategy (e.g., IMPLEMENTER), DO NOT switch to it again.
         - **HIGH-SPEED FLOW**: You MUST use the 'Stage -> Save -> Stage' pattern. 
         - **NO UNSTAGE**: DO NOT use 'unstage_context'. The system EVICTS old files automatically when you stage a new one. Manual unstaging is a waste of a turn.
         - **PINNED PAGES**: Pages marked as (PINNED) are critical and CANNOT be unstaged.
@@ -63,9 +65,11 @@ class ManagerPromptBuilder:
         
         # 1. ARTIFACT CHECKLIST: Make it very clear what is already done.
         checklist = ""
-        if state.artifacts:
+        # SAFEGUARD: Filter Nones
+        safe_artifacts = [a for a in state.artifacts if a]
+        if safe_artifacts:
             checklist = "\n        [COMPLETED ARTIFACTS CHECKLIST]\n"
-            for a in state.artifacts:
+            for a in safe_artifacts:
                 checklist += f"        - {a.identifier} [DONE]\n"
 
         # 2. PROGRESS POINTERS: "You are here"
@@ -88,20 +92,28 @@ class ManagerPromptBuilder:
             if current_idx < len(state.plan) - 1:
                 progress_block += f"        NEXT STATE GATE -> {state.plan[current_idx + 1].description}\n"
 
+        # 3. GPS: Calculate the next sequential step
+        gps_hint = ""
+        current_count = len([a for a in safe_artifacts if a.identifier not in ["TOTAL", "VERIFICATION", "FILE_LIST"]])
+        
+        # Heuristic for Marathon/Overflow
+        if "step_" in state.task_intent or any("step_" in a.identifier for a in safe_artifacts):
+             gps_hint = f"\n        [GPS GUIDANCE] You have {current_count} parts. NEXT TARGET: 'step_{current_count}.txt'."
+        elif "log_" in state.task_intent or any("log_" in a.identifier for a in safe_artifacts):
+             gps_hint = f"\n        [GPS GUIDANCE] You have {current_count} values. NEXT TARGET: 'overflow_data/log_{current_count:02d}.txt'."
+
         # Format artifacts for prompt: IDENTIFIERS ONLY (Artifact Shadowing)
-        found_artifacts = [f"<{a.identifier}>" for a in state.artifacts]
+        # REMOVED BRACKETS: 8B models confused by <id>. Using raw ID.
+        found_artifacts = [f"{a.identifier}" for a in safe_artifacts]
         artifacts_summary = ", ".join(found_artifacts) if found_artifacts else "None"
 
         return f"""
         [MISSION PROGRESS]
         {state.task_intent}
+        [CURRENT STRATEGY]: {state.strategy}
         {checklist}
+        {gps_hint}
         {progress_block}
-        
-        [STATE DELTA GOVERNANCE]
-        - YOUR REASONING IS EPHEMERAL: It is wiped every turn. Only 'Backpack' artifacts persist.
-        - SEALED PAST: Steps marked [SEALED] cannot be revisited or re-justified.
-        - NO DELTA = FAILURE: If your next move does not change the Backpack or L1 RAM, it is a wasted cycle.
         
         [CRITICAL GROUND TRUTH (The Backpack)]
         You currently hold pointers to the following Artifacts: {artifacts_summary}
@@ -124,17 +136,6 @@ class ManagerPromptBuilder:
         
         [CURRENT L1 CONTEXT CONTENT]
         {active_content}
-
-        [GOVERNANCE RULES]
-        1. FORWARD ONLY: Once an artifact (e.g. PART_0) is in the checklist, DO NOT stage its source file ever again.
-        2. SEQUENTIAL FLOW: Open the NEXT numerical file that is not yet completed.
-        3. AUTO-EVICTION: Never use 'unstage_context'. Just 'stage_context' the NEXT file immediately after saving your artifact. The system handles eviction.
-        4. IMMEDIATE SAVE: If a file is in 'Active L1 RAM', your VERY NEXT move MUST be 'save_artifact'.
-        5. PERSONA TRANSITION: If strategy is 'Architect' and you saved a PLAN, you MUST 'switch_strategy' to 'Implementer'.
-        6. STATE DELTA: Your goal is to move a file to L1, or a fact to the Backpack. 
-        7. HALT: If all steps are complete, use 'halt_and_ask'.
-        8. PRE-CALCULATION: Before using 'calculate', ensure all required numbers are saved as Artifacts.
-        9. COUNT CHECK: If mission specifies a count (e.g. 10 items), COUNT your artifacts. If you have fewer, do NOT halt.
 
         RESPONSE MUST BE VALID JSON.
         

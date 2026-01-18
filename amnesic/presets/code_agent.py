@@ -61,11 +61,10 @@ from pydantic import BaseModel, Field, field_validator, AliasChoices, ConfigDict
 class ManagerMove(BaseModel):
     model_config = ConfigDict(populate_by_name=True)
     
-    thought_process: str = Field(
-        ..., 
-        min_length=5, 
+    thought_process: Optional[str] = Field(
+        None, 
         description="Internal logic: what I see in L1 and what I need next.",
-        validation_alias=AliasChoices("thought_process", "rationale", "thought")
+        validation_alias=AliasChoices("thought_process", "rationale", "thought", "thought_organism", "thought_terminator")
     )
     tool_call: Literal["halt_and_ask", "stage_context", "unstage_context", "save_artifact", "delete_artifact", "stage_artifact", "stage_multiple_artifacts", "query_sidecar", "edit_file", "write_file", "verify_step", "calculate", "switch_strategy", "compare_files", "set_audit_policy"]
     target: str = Field(

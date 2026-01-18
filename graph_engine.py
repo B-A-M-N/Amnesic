@@ -69,7 +69,7 @@ def node_manager(state: AgentState):
     Uses Ollama (Qwen-7B) to decide the next action.
     """
     print("\n--- [MANAGER] Deliberating ---")
-    llm = ChatOllama(model="qwen2.5-coder:7b", temperature=0.1, format="json")
+    llm = ChatOllama(model="rnj-1:latest", temperature=0.1, format="json")
     
     file_list = "\n".join([f"- {f}" for f in state['active_files']])
     

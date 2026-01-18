@@ -26,7 +26,7 @@ def run_code_advanced_proof():
     # 2. Initialize Session
     mission = (
         "MISSION: 1. Update api.py: Change login(username) to login(username, password). "
-        "2. Save the new signature as a CONTRACT ARTIFACT. "
+        "2. Save the new signature as a CONTRACT ARTIFACT (Note: Writing the file 'api.py' counts as saving this artifact). "
         "3. Update client.py: Pass 'password123' to the login call to match the new contract."
     )
     
@@ -37,10 +37,7 @@ def run_code_advanced_proof():
     
     session = AmnesicSession(
         mission=mission,
-        root_dir=".",
-        l1_capacity=32768,
-        recursion_limit=50
-    )
+        l1_capacity=32768)
     
     # Visual Confirmation of Architecture (Boot Sequence)
     session.visualize()

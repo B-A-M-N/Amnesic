@@ -15,7 +15,7 @@ def get_driver(
     
     if provider == "ollama":
         from .ollama import OllamaDriver
-        return OllamaDriver(model_name=model, **kwargs)
+        return OllamaDriver(model_name=model, base_url=base_url, **kwargs)
     
     elif provider == "openai":
         from .llm import OpenAIDriver

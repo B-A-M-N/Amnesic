@@ -1,5 +1,5 @@
 import os
-from typing import List, Any
+from typing import List, Any, Optional
 from ..core.session import AmnesicSession
 
 class CleanRoomSession(AmnesicSession):
@@ -11,14 +11,15 @@ class CleanRoomSession(AmnesicSession):
     3. Immediate Eviction (L1 Purge)
     """
 
-    def __init__(self, mission: str, l1_capacity: int = 16384, model: str = "qwen2.5-coder:7b", policies: List[Any] = None):
+    def __init__(self, mission: str, l1_capacity: int = 16384, model: Optional[str] = None, policies: List[Any] = None, **kwargs):
         root_dir = "."
         super().__init__(
             mission=mission + "\n\nCRITICAL SECURITY RULE: Once the safe artifact is saved, you MUST 'unstage_context' for the original secret file. L1 RAM must be EMPTY before you 'halt_and_ask'.",
             root_dir=root_dir,
             model=model,
             policies=policies or [],
-            audit_profile="STRICT_AUDIT"
+            audit_profile="STRICT_AUDIT",
+            **kwargs
         )
 
     def _setup_default_tools(self):

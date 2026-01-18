@@ -1,3 +1,4 @@
+from typing import Optional
 from amnesic.core.session import AmnesicSession
 
 class RosettaSession(AmnesicSession):
@@ -10,7 +11,7 @@ class RosettaSession(AmnesicSession):
     4. Evict Legacy (L1 Purge)
     """
 
-    def __init__(self, mission: str, **kwargs):
+    def __init__(self, mission: str, model: Optional[str] = None, **kwargs):
         rosetta_constraints = (
             "MIGRATION PROTOCOL ACTIVE. "
             "1. You are the ROSETTA TRANSLATOR. "
@@ -21,7 +22,7 @@ class RosettaSession(AmnesicSession):
             "6. Once translated, save the new code as an Artifact."
         )
         full_mission = f"{mission}\n\n{rosetta_constraints}"
-        super().__init__(mission=full_mission, **kwargs)
+        super().__init__(mission=full_mission, model=model, **kwargs)
         
         from .code_agent import Artifact
         self.state['framework_state'].artifacts.append(

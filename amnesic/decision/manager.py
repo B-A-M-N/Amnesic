@@ -64,7 +64,7 @@ class Manager:
         else:
             l1_files = [active_context] if active_context else []
 
-        found_artifacts = [f"{a.identifier}" for a in state.artifacts]
+        found_artifacts = [f"{a.identifier}" for a in state.artifacts if a]
         artifacts_summary = ", ".join(found_artifacts) if found_artifacts else "None"
         
         # L1 OCCUPANCY WARNING
