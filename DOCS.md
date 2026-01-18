@@ -78,34 +78,49 @@ By fixing the random seed and enforcing strict state transitions, Amnesic can ac
 
 ---
 
-## 5. Model Tuning & Context Normalization
+## 5. Model Tuning & Context Partitioning
 
 ### The "Staging Normalizer" Pattern
 Amnesic acts as a **Context Staging Normalizer**. By virtualizing infinite context into discrete, manageable pages, it allows smaller models (e.g., 8B parameters with 8k context) to achieve the functional performance of much larger models on long-horizon tasks.
 
 *   **Scaling Small Models:** A 7B model with a 4k window can process a 100k-token repository by treating it as a stream of 2k chunks. The "Brain" never sees more than it can handle, but the "Backpack" retains the accumulated insight.
-*   **Multi-Model Pipelines:** In pipelines where agents hand off tasks, Amnesic normalizes the state. A "Scout" agent (8B) can distill a massive dataset into a dense 1k-token artifact, which is then handed to a "Coder" agent (70B) for high-precision synthesis.
+*   **Architecture Parity:** By enforcing the same amnesic rules on an 8B model and a 70B model, we normalize their output structure. This allows smaller models to serve as high-speed "Scouts" for larger implementing models.
 
-### Tuning `l1_capacity`
-**CRITICAL:** For Amnesic to work, you MUST tune `l1_capacity` to the specific constraints of your LLM.
+### 5-Way Context Partitioning Strategy
+For the protocol to remain invariant, the total context window of the LLM MUST be explicitly divided into functional zones. These zones are not fixed; they are **individually tunable parameters** that must be adjusted based on the specific model's architecture and the complexity of the mission.
 
-*   **Total Window** = The model's hard limit (e.g., 8192 tokens).
-*   **System Overhead** = Prompts + History (~1000-2000 tokens).
-*   **Output Reserve** = Space needed for the model's response (~1000 tokens).
-*   **L1 Capacity** = Total Window - (Overhead + Output Reserve).
+| Zone | Purpose | Implementation Parameter |
+| :--- | :--- | :--- |
+| **1. System Prompt** | The "Rules of the Game." Invariants. | `context_floors["overhead"]` |
+| **2. State Message** | The Backpack + Checklist. | `context_floors["overhead"]` |
+| **3. Decision History** | Compressed action log. | `context_floors["overhead"]` |
+| **4. Reasoning Room** | Space for Chain-of-Thought (CoT). | `context_floors["reasoning"]` |
+| **5. Response Space** | Space for the tool call (JSON). | `context_floors["output"]` |
+| **6. Active Context (L1)** | User data / Source code. | **Dynamic Remainder** |
 
-**Example Configuration:**
+### Dynamic Recalculation & Tuning
+Amnesic dynamically calculates the **L1 Capacity** (the remainder) at every turn to ensure the guaranteed floors are never violated:
+`L1_Capacity = Total_Window - (Overhead_Floor + Reasoning_Floor + Output_Floor)`
+
+**Individually Tunable Realities:**
+*   **Reasoning-Heavy Models:** If using a model that requires extensive Chain-of-Thought to remain accurate (e.g., Llama 3 8B), increase `reasoning` to 8192+.
+*   **High-Throughput Missions:** For simple data extraction, decrease `reasoning` and `overhead` to maximize the `L1_Capacity` for reading large files.
+*   **Small Window Scaling (Theoretical):** For models with very small windows (e.g., 4k), you *can* shrink floors to the absolute minimum to allow a 1k L1 "peep-hole." However, this is practically limited by the **Peep-Hole Effect**: if the window is too small to fit a coherent semantic unit (like a single function), the agent will thrash. Realistically, this requires highly specialized "micro-chunking" strategies.
+
+**Example: Advanced Tuning**
 ```python
-# For a model with 8k context
 session = AmnesicSession(
-    ...,
-    max_total_context=8192,
+    max_total_context=32768,
     context_floors={
-        "reasoning": 1024,  # Reserve for thinking
-        "output": 1024,     # Reserve for response
-        "overhead": 2048    # Reserve for system prompts/history
+        "reasoning": 16384, # Give the model massive room to plan
+        "output": 4096,     # Ensure complex code writes aren't truncated
+        "overhead": 4096    # Room for deep history and complex rules
     }
 )
-# Resulting L1 Capacity = ~4096 tokens
+# Result: L1_Capacity is locked to ~8k tokens. 
+# The agent will process data in 8k chunks, but with maximum "Cognitive Oxygen."
 ```
-If `l1_capacity` is set too high, the model will truncate the system prompt or history, breaking the invariant enforcement. If set too low, the agent will "thrash," constantly staging and unstaging files to read simple functions.
+
+**CRITICAL:** Tunability is the key to scaling. By adjusting these limits, you can normalize context staging across a heterogeneous fleet of LLMs, ensuring a 7B model and a 70B model operate with the same structural integrity.
+
+**CRITICAL:** If `L1_Capacity` is too high, the LLM will truncate the System Prompt or History, causing it to "forget" the mission rules or get stuck in loops. Correct tuning ensures the "Cognitive Oxygen" (Reasoning Room) is never crowded out by "Data Noise" (Active Context).
